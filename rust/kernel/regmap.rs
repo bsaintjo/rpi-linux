@@ -38,7 +38,7 @@ use crate::{
     macros::paste,
     sync::Arc,
 };
-#[cfg(CONFIG_REGMAP_I2C = "y")]
+// #[cfg(CONFIG_REGMAP_I2C = "y")]
 use crate::{error::from_err_ptr, i2c};
 use core::{marker::PhantomData, ptr::NonNull};
 
@@ -69,7 +69,7 @@ pub enum CacheType {
 pub struct Regmap(NonNull<bindings::regmap>);
 
 impl Regmap {
-    #[cfg(CONFIG_REGMAP_I2C = "y")]
+    // #[cfg(CONFIG_REGMAP_I2C = "y")]
     /// Initialize a [`Regmap`] instance for an `i2c` client.
     pub fn init_i2c<T: ConfigOps>(i2c: &i2c::Client, config: &Config<T>) -> Result<Self> {
         // SAFETY: Type invariants guarantee that `i2c.as_raw` is valid and non-null and

@@ -3,13 +3,13 @@
 #include <linux/i2c.h>
 #include <linux/regmap.h>
 
-#if IS_BUILTIN(CONFIG_REGMAP_I2C)
+// #if IS_BUILTIN(CONFIG_REGMAP_I2C)
 struct regmap *rust_helper_regmap_init_i2c(struct i2c_client *i2c,
 					   const struct regmap_config *config)
 {
-	return regmap_init_i2c(i2c, config);
+	return __regmap_init_i2c(i2c, config, NULL, NULL);
 }
-#endif
+// #endif
 
 int rust_helper_regmap_field_write(struct regmap_field *field, unsigned int val)
 {
