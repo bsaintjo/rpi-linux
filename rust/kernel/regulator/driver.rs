@@ -480,7 +480,7 @@ impl<T: ForeignOwnable + Send + Sync> Device<T> {
     /// Retrieve driver data associated to `self`
     pub fn data(&self) -> T::Borrowed<'_> {
         // SAFETY: By the type invariants, we know that `self.rdev` is always valid and non-null.
-        unsafe { T::borrow(bindings::rdev_get_drvdata(self.rdev.as_ptr())) }
+        unsafe { T::borrow(bindings::rdev_get_drvdata(self.rdev.as_ptr()).cast()) }
     }
 }
 
@@ -493,7 +493,7 @@ impl<T: ForeignOwnable + Send + Sync> Drop for Device<T> {
         // SAFETY: The type invariants garuantee that `self.rdev` is valid and non-null, and
         // that `rdev_get_drvdata` is valid memory of type `T` stored there by calling
         // `T::into_foreign`.
-        unsafe { T::from_foreign(bindings::rdev_get_drvdata(self.rdev.as_ptr())) };
+        unsafe { T::from_foreign(bindings::rdev_get_drvdata(self.rdev.as_ptr()).cast()) };
     }
 }
 
