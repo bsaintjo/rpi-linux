@@ -72,8 +72,8 @@ impl i2c::Driver for Cm3232 {
 }
 
 #[vtable]
-impl iio::Driver<1> for Cm3232 {
-    const CHANNELS: [iio::IioChanSpec; 1] = [
+impl iio::Driver for Cm3232 {
+    const CHANNELS: &'static [iio::IioChanSpec] = &[
         iio::IioChanSpec,
     ];
 
