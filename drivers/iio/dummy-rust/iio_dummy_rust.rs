@@ -1,9 +1,9 @@
 use kernel::faux;
 
-use kernel::prelude::*;
 use kernel::c_str;
-use kernel::sync::Mutex;
 use kernel::iio::IioDevice;
+use kernel::prelude::*;
+use kernel::sync::Mutex;
 
 module! {
     type: IioDummyModule,
@@ -22,7 +22,10 @@ impl kernel::Module for IioDummyModule {
     fn init(module: &'static ThisModule) -> Result<Self> {
         let _faux_reg = faux::Registration::new(c_str!("rust-iio-dummy"), None)?;
         let indio_dev: IioDevice<()> = IioDevice::register(_faux_reg.as_ref(), module)?;
-        Ok(Self { _faux_reg, indio_dev })
+        Ok(Self {
+            _faux_reg,
+            indio_dev,
+        })
     }
 }
 
