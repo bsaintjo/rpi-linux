@@ -62,8 +62,8 @@ impl<T> IioDevice<T> {
     }
 }
 #[vtable]
-pub trait Driver<const N: usize> {
-    const CHANNELS: [IioChanSpec; N];
+pub trait Driver {
+    const CHANNELS: &'static [IioChanSpec];
     fn read_raw<T>(
         indio_dev: &mut IioDevice<T>,
         _channel: &IioChanSpec,
@@ -83,9 +83,9 @@ pub trait Driver<const N: usize> {
     );
 }
 
-pub struct IioVTableAdapter<const N: usize, T: Driver<{ N }>>(PhantomData<T>);
+pub struct IioVTableAdapter<T: Driver>(PhantomData<T>);
 
-impl<const N: usize, T: Driver<{ N }>> IioVTableAdapter<N, T> {
+impl<T: Driver> IioVTableAdapter<T> {
     unsafe extern "C" fn read_raw(
         indio_dev: *mut bindings::iio_dev,
         iio_chan_spec: *const bindings::iio_chan_spec,
@@ -121,17 +121,3 @@ impl<const N: usize, T: Driver<{ N }>> IioVTableAdapter<N, T> {
 }
 
 pub struct IioChanSpec;
-
-/// struct iio_chan_spec[]
-pub struct Channels(KVec<IioChanSpec>);
-
-impl IioChanSpec {
-    pub fn with_light(mut self) -> Self {
-        // let channel =
-        todo!()
-    }
-
-    pub fn with_temp(mut self) -> Self {
-        todo!()
-    }
-}
