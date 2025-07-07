@@ -83,6 +83,7 @@ pub mod fs;
 pub mod i2c;
 pub mod init;
 pub mod io;
+pub mod iio;
 pub mod ioctl;
 pub mod jump_label;
 #[cfg(CONFIG_KUNIT)]
