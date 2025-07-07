@@ -1,9 +1,12 @@
-use core::{marker::PhantomData, ptr::{null, null_mut, NonNull}};
+use core::{
+    marker::PhantomData,
+    ptr::{null, null_mut, NonNull},
+};
 
-use crate::{device, driver, error::to_result, str::CStr, types::Opaque, ThisModule};
-use crate::prelude::*;
-use core::mem::MaybeUninit;
 use crate::error::VTABLE_DEFAULT_ERROR;
+use crate::prelude::*;
+use crate::{device, driver, error::to_result, str::CStr, types::Opaque, ThisModule};
+use core::mem::MaybeUninit;
 
 // struct Adapter<T>(T);
 
@@ -33,8 +36,8 @@ pub struct IioDevice<T> {
 }
 
 // TODO Safety
-unsafe impl<T: Send + Sync > Send for IioDevice<T> {}
-unsafe impl<T: Send + Sync > Sync for IioDevice<T> {}
+unsafe impl<T: Send + Sync> Send for IioDevice<T> {}
+unsafe impl<T: Send + Sync> Sync for IioDevice<T> {}
 
 // TODO Sealed for now, figure out if necessary
 impl<T: Send + Sync> crate::private::Sealed for IioDevice<T> {}
@@ -43,12 +46,14 @@ impl<T> IioDevice<T> {
     pub fn register(dev: &crate::device::Device, module: &'static ThisModule) -> Result<Self> {
         let sizeof_priv = core::mem::size_of::<T>() as ffi::c_int;
         // TODO Safety
-        let indio_dev = unsafe { bindings::iio_device_alloc(dev.as_raw(), sizeof_priv)};
+        let indio_dev = unsafe { bindings::iio_device_alloc(dev.as_raw(), sizeof_priv) };
 
         // unsafe { bindings::iio_priv }
 
         // TODO Safety
-        let ret = unsafe { bindings::__devm_iio_device_register(dev.as_raw(), indio_dev, module.as_ptr())};
+        let ret = unsafe {
+            bindings::__devm_iio_device_register(dev.as_raw(), indio_dev, module.as_ptr())
+        };
 
         Ok(Self {
             indio_dev: NonNull::new(indio_dev).ok_or(EINVAL)?,
@@ -63,13 +68,19 @@ pub trait Driver<const N: usize> {
         indio_dev: &mut IioDevice<T>,
         _channel: &IioChanSpec,
         _fst: i32,
-        _snd: i32, 
-        _mask: isize)
-    {
+        _snd: i32,
+        _mask: isize,
+    ) {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 
-    fn write_raw<T>(indio_dev: &mut IioDevice<T>, _channel: &IioChanSpec, _fst: i32, _snd: i32, _mask: isize);
+    fn write_raw<T>(
+        indio_dev: &mut IioDevice<T>,
+        _channel: &IioChanSpec,
+        _fst: i32,
+        _snd: i32,
+        _mask: isize,
+    );
 }
 
 pub struct IioVTableAdapter<const N: usize, T: Driver<{ N }>>(PhantomData<T>);
@@ -80,8 +91,8 @@ impl<const N: usize, T: Driver<{ N }>> IioVTableAdapter<N, T> {
         iio_chan_spec: *const bindings::iio_chan_spec,
         val: *mut ffi::c_int,
         val2: *mut ffi::c_int,
-        mask: isize
-    ) -> ffi::c_int{
+        mask: isize,
+    ) -> ffi::c_int {
         todo!()
     }
     unsafe extern "C" fn write_raw(
@@ -89,14 +100,18 @@ impl<const N: usize, T: Driver<{ N }>> IioVTableAdapter<N, T> {
         iio_chan_spec: *const bindings::iio_chan_spec,
         val: ffi::c_int,
         val2: ffi::c_int,
-        mask: isize
+        mask: isize,
     ) -> ffi::c_int {
         todo!()
     }
 
     const VTABLE: bindings::iio_info = bindings::iio_info {
         read_raw: Some(Self::read_raw),
-        write_raw: if T::HAS_WRITE_RAW { Some(Self::write_raw) } else { None },
+        write_raw: if T::HAS_WRITE_RAW {
+            Some(Self::write_raw)
+        } else {
+            None
+        },
         ..unsafe { MaybeUninit::zeroed().assume_init() }
     };
 
@@ -105,7 +120,6 @@ impl<const N: usize, T: Driver<{ N }>> IioVTableAdapter<N, T> {
     }
 }
 
-
 pub struct IioChanSpec;
 
 /// struct iio_chan_spec[]
@@ -113,7 +127,7 @@ pub struct Channels(KVec<IioChanSpec>);
 
 impl IioChanSpec {
     pub fn with_light(mut self) -> Self {
-        // let channel = 
+        // let channel =
         todo!()
     }
 
