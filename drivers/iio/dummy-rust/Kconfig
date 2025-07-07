@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Industrial I/O subsystem Dummy Driver configuration
+#
+menu "Rust IIO dummy driver"
+	depends on IIO
+
+config IIO_SIMPLE_DUMMY_RUST
+	tristate "An example driver with no hardware requirements with Rust"
+	depends on IIO_SW_DEVICE && RUST=y
+	help
+	  Reimplementation of the software dummy driver in Rust to help with creating
+	  the Rust Industrial I/O subsystem
+
+endmenu
