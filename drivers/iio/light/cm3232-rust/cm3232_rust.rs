@@ -77,10 +77,10 @@ impl iio::Driver<1> for Cm3232 {
         iio::IioChanSpec,
     ];
 
-    fn read_raw<T>(indio_dev: &mut iio::IioDevice<T>, _channel: &iio::IioChanSpec, _fst: u32, _snd: u32, _mask: u32) {
+    fn read_raw<T>(indio_dev: &mut iio::IioDevice<T>, _channel: &iio::IioChanSpec, _val: i32, _val2: i32, _mask: isize) {
         todo!()
     }
-    fn write_raw<T>(indio_dev: &mut iio::IioDevice<T>, _channel: &iio::IioChanSpec, _fst: u32, _snd: u32, _mask: u32) {
+    fn write_raw<T>(indio_dev: &mut iio::IioDevice<T>, _channel: &iio::IioChanSpec, _val: i32, _val2: i32, _mask: isize) {
         todo!()
     }
 }
