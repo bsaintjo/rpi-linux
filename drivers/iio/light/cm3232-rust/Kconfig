@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# CM3232 Rust driver
+#
+
+config CM3232_RUST
+	depends on I2C && RUST=y
+	tristate "Rust CM3232 ambient light sensor"
+	help
+	  Say Y here if you use cm3232.
+	  This option enables ambient light sensor using
+	  Capella Microsystems cm3232 device driver.
+
+	  To compile this driver as a module, choose M here:
+	  the module will be called cm3232-rust.
