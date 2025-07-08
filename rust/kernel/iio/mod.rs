@@ -3,7 +3,7 @@ use core::{
     ptr::{null, null_mut, NonNull},
 };
 
-use crate::error::VTABLE_DEFAULT_ERROR;
+use crate::{device::Device, error::VTABLE_DEFAULT_ERROR};
 use crate::prelude::*;
 use crate::{device, driver, error::to_result, str::CStr, types::Opaque, ThisModule};
 use core::mem::MaybeUninit;
@@ -30,30 +30,46 @@ use core::mem::MaybeUninit;
 //     }
 // }
 
-pub struct IioDevice<T> {
+pub struct Registration<T> {
     indio_dev: NonNull<bindings::iio_dev>,
     _priv: PhantomData<T>,
 }
 
 // TODO Safety
-unsafe impl<T: Send + Sync> Send for IioDevice<T> {}
-unsafe impl<T: Send + Sync> Sync for IioDevice<T> {}
+unsafe impl<T: Send + Sync> Send for Registration<T> {}
+unsafe impl<T: Send + Sync> Sync for Registration<T> {}
 
 // TODO Sealed for now, figure out if necessary
-impl<T: Send + Sync> crate::private::Sealed for IioDevice<T> {}
+impl<T: Send + Sync> crate::private::Sealed for Registration<T> {}
 
-impl<T> IioDevice<T> {
-    pub fn register(dev: &crate::device::Device, module: &'static ThisModule) -> Result<Self> {
+impl<T: Driver> Registration<T> {
+    pub fn new(name: &'static CStr, dev: &Device, module: &'static ThisModule) -> Result<Self> {
         let sizeof_priv = core::mem::size_of::<T>() as ffi::c_int;
-        // TODO Safety
+
+        // On failure, iio_device_alloc returns NULL
         let indio_dev = unsafe { bindings::iio_device_alloc(dev.as_raw(), sizeof_priv) };
+        if indio_dev.is_null() {
+            return Err(ENOMEM);
+        }
+        unsafe {
+            // TODO: Safety - can fail if CHANNELS is bigger than i32
+            (*indio_dev).name = name.as_bytes_with_nul().as_ptr();
+            (*indio_dev).num_channels = T::CHANNELS.len() as i32;
+        }
 
-        // unsafe { bindings::iio_priv }
-
+        // TODO use iio_device_register instead?
         // TODO Safety
+        // If ret is negative register has failed
         let ret = unsafe {
             bindings::__devm_iio_device_register(dev.as_raw(), indio_dev, module.as_ptr())
         };
+
+        if ret < 0 {
+            unsafe { bindings::iio_device_free(indio_dev) };
+            // TODO Check error to return
+            return Err(EINVAL);
+        }
+
 
         Ok(Self {
             indio_dev: NonNull::new(indio_dev).ok_or(EINVAL)?,
@@ -61,11 +77,16 @@ impl<T> IioDevice<T> {
         })
     }
 }
+
+fn to_raw_channels(channels: &'static [IioChanSpec]) -> *const bindings::iio_chan_spec {
+    todo!()
+}
+
 #[vtable]
 pub trait Driver {
     const CHANNELS: &'static [IioChanSpec];
     fn read_raw<T>(
-        indio_dev: &mut IioDevice<T>,
+        indio_dev: &mut Registration<T>,
         _channel: &IioChanSpec,
         _fst: i32,
         _snd: i32,
@@ -75,12 +96,14 @@ pub trait Driver {
     }
 
     fn write_raw<T>(
-        indio_dev: &mut IioDevice<T>,
+        indio_dev: &mut Registration<T>,
         _channel: &IioChanSpec,
         _fst: i32,
         _snd: i32,
         _mask: isize,
-    );
+    ) {
+        build_error!(VTABLE_DEFAULT_ERROR)
+    }
 }
 
 pub struct IioVTableAdapter<T: Driver>(PhantomData<T>);
@@ -106,7 +129,11 @@ impl<T: Driver> IioVTableAdapter<T> {
     }
 
     const VTABLE: bindings::iio_info = bindings::iio_info {
-        read_raw: Some(Self::read_raw),
+        read_raw: if T::HAS_READ_RAW {
+            Some(Self::read_raw)
+        } else {
+            None
+        },
         write_raw: if T::HAS_WRITE_RAW {
             Some(Self::write_raw)
         } else {
