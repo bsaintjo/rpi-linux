@@ -1,9 +1,9 @@
 use kernel::faux;
 
 use kernel::c_str;
-use kernel::iio::IioDevice;
 use kernel::prelude::*;
 use kernel::sync::Mutex;
+use kernel::iio;
 
 module! {
     type: IioDummyModule,
@@ -14,20 +14,28 @@ module! {
 }
 
 struct IioDummyModule {
-    _faux_reg: faux::Registration,
-    indio_dev: IioDevice<()>,
+    _fdev: faux::Registration,
+    indio_dev: iio::Registration<EmptyState>,
 }
 
 impl kernel::Module for IioDummyModule {
     fn init(module: &'static ThisModule) -> Result<Self> {
-        let _faux_reg = faux::Registration::new(c_str!("rust-iio-dummy"), None)?;
-        let indio_dev: IioDevice<()> = IioDevice::register(_faux_reg.as_ref(), module)?;
+        let _fdev = faux::Registration::new(c_str!("rust-iio-dummy-faux"), None)?;
+        let indio_dev: iio::Registration<EmptyState> = iio::Registration::new(c_str!("rust-iio-dummy"), _fdev.as_ref(), module)?;
         Ok(Self {
-            _faux_reg,
+            _fdev,
             indio_dev,
         })
     }
 }
+
+struct EmptyState;
+
+#[vtable]
+impl iio::Driver for EmptyState {
+    const CHANNELS: &'static [iio::IioChanSpec] = &[];
+}
+
 
 struct IioDummyState {
     dac_val: i32,
