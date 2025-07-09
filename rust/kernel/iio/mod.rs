@@ -1,15 +1,11 @@
-use core::{
-    marker::PhantomData,
-    ptr::NonNull,
-    mem::MaybeUninit,
-};
+use core::{marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
 
 use crate::{device::Device, error::VTABLE_DEFAULT_ERROR, prelude::*, str::CStr, ThisModule};
 
-pub mod trigger;
 pub mod channels;
+pub mod trigger;
 
-pub use channels::{Specification, IIOValue, ChannelType};
+pub use channels::{ChannelType, IIOValue, Specification};
 
 pub struct RegistrationOptions {
     pub name: &'static CStr,
@@ -33,7 +29,11 @@ unsafe impl<T: Send + Sync> Sync for Registration<T> {}
 impl<T: Send + Sync> crate::private::Sealed for Registration<T> {}
 
 impl<T: Driver> Registration<T> {
-    pub fn new(dev: &Device, module: &'static ThisModule, options: &RegistrationOptions) -> Result<Self> {
+    pub fn new(
+        dev: &Device,
+        module: &'static ThisModule,
+        options: &RegistrationOptions,
+    ) -> Result<Self> {
         // Size is probably wrong, needs to be the T::Ptr, private data
         // TODO: Instead of iio_priv, store private data on the Rust side?
         let sizeof_priv = core::mem::size_of::<T>() as ffi::c_int;
@@ -76,7 +76,6 @@ impl<T: Driver> Registration<T> {
             return Err(EINVAL);
         }
 
-
         Ok(Self {
             indio_dev: NonNull::new(indio_dev).ok_or(EINVAL)?,
             _priv: PhantomData,
@@ -91,9 +90,9 @@ impl<T: Driver> Registration<T> {
 #[pinned_drop]
 impl<T> PinnedDrop for Registration<T> {
     fn drop(self: Pin<&mut Self>) {
-        unsafe { 
+        unsafe {
             bindings::iio_device_unregister(self.indio_dev.as_ptr());
-	        bindings::iio_device_free(self.indio_dev.as_ptr());
+            bindings::iio_device_free(self.indio_dev.as_ptr());
         }
     }
 }
@@ -142,7 +141,7 @@ impl<T: Driver> IioVTableAdapter<T> {
         let indio_dev = unsafe { &*indio_dev.cast::<Registration<T>>() };
         let val = unsafe { &*val.cast::<i32>() };
         let val2 = unsafe { &*val2.cast::<i32>() };
-        let channel = unsafe { &* iio_chan_spec.cast::<Specification>() };
+        let channel = unsafe { &*iio_chan_spec.cast::<Specification>() };
         let ret = T::read_raw(indio_dev, channel, val, val2, mask);
         ret as ffi::c_int
     }
