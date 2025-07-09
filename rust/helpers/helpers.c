@@ -25,6 +25,7 @@
 #include "fs.c"
 #include "i2c.c"
 #include "io.c"
+#include "iio.c"
 #include "jump_label.c"
 #include "kunit.c"
 #include "mm.c"
