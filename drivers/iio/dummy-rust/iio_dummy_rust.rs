@@ -21,7 +21,11 @@ struct IioDummyModule {
 impl kernel::Module for IioDummyModule {
     fn init(module: &'static ThisModule) -> Result<Self> {
         let _fdev = faux::Registration::new(c_str!("rust-iio-dummy-faux"), None)?;
-        let indio_dev: iio::Registration<EmptyState> = iio::Registration::new(c_str!("rust-iio-dummy"), _fdev.as_ref(), module)?;
+        let options = iio::RegistrationOptions {
+            name: c_str!("rust-iio-dummy"),
+            mode: iio::Mode::Direct,
+        };
+        let indio_dev: iio::Registration<EmptyState> = iio::Registration::new(_fdev.as_ref(), module, &options)?;
         Ok(Self {
             _fdev,
             indio_dev,
@@ -29,11 +33,16 @@ impl kernel::Module for IioDummyModule {
     }
 }
 
+const DUMMY_CHANNELS: &'static [iio::Specification] = &[
+     iio::Specification::new(iio::ChannelType::Light), 
+];
+
 struct EmptyState;
 
 #[vtable]
 impl iio::Driver for EmptyState {
-    const CHANNELS: &'static [iio::IioChanSpec] = &[];
+    type Ptr = Pin<KBox<Self>>;
+    const CHANNELS: &'static [iio::Specification] = DUMMY_CHANNELS;
 }
 
 
