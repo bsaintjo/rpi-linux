@@ -52,23 +52,24 @@ struct DummyDevice {
 
 #[vtable]
 impl iio::Driver for DummyDevice {
-    type Ptr = Pin<KBox<Self>>;
+    type Data = DummyState;
+    type Ptr = Pin<KBox<Mutex<Self::Data>>>;
     const CHANNELS: &'static [iio::Specification] = DUMMY_CHANNELS;
 
-    fn read_raw(data: Pin<&Self>, spec: &iio::Specification) -> iio::SensorResult<i32> {
+    fn read_raw(data: Pin<&Mutex<Self::Data>>, spec: &iio::Specification) -> iio::SensorResult<i32> {
         match spec.channel_type() {
             iio::ChannelType::Voltage => {
-                let guard = data.st.lock();
+                let guard = data.lock();
                 iio::SensorResult::int(guard.dac_val)
             }
             _ => todo!(),
         }
     }
 
-    fn write_raw(data: Pin<&mut Self>, spec: &iio::Specification, value: i32) -> Result {
+    fn write_raw(data: Pin<&mut Mutex<Self::Data>>, spec: &iio::Specification, value: i32) -> Result {
         match spec.channel_type() {
             iio::ChannelType::Voltage if spec.is_differential() => {
-                let mut guard = data.st.lock();
+                let mut guard = data.lock();
                 guard.dac_val = value;
             }
             _ => todo!(),
