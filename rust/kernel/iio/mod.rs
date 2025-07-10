@@ -1,11 +1,12 @@
 use core::{marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
 
-use crate::{device::Device, error::VTABLE_DEFAULT_ERROR, prelude::*, str::CStr, ThisModule};
+use crate::{device::Device, error::VTABLE_DEFAULT_ERROR, iio::channels::Simple, prelude::*, str::CStr, types::ForeignOwnable, ThisModule};
 
 pub mod channels;
 pub mod trigger;
+mod buffer;
 
-pub use channels::{ChannelType, IIOValue, Specification};
+pub use channels::{ChannelType, IIOValue, Specification, SensorResult};
 
 pub struct RegistrationOptions {
     pub name: &'static CStr,
@@ -63,6 +64,31 @@ impl<T: Driver> Registration<T> {
         // TODO Here we need to do any other configuration with buffers, etc.
         // Possibly move into RegistrationOptions
 
+        // In the ideal case, we automatically configure all the buffer/event channels
+        // If they are present in T::CHANNELS.
+
+        // TODO Need to confirm, can a device have multiple buffers and events?
+
+        // TODO We need to do all of the configuration here
+        // Some ideas are loop over T::CHANNELS
+        // for channel in T::CHANNELS { /* configuration */ }
+        // If the channel is Specification<T> where T: BufferChannel
+        // Run the corresponding configuration with
+        // <T as BufferChannel>::configure (needs to be added)
+        // However this means that we need to loop over every channel,
+        // every time a device is registered. Maybe the compiler will see
+        // that nothing is done for the Specification<Simple>?
+
+        // Other idea is iio::Driver has statically allocated
+        // associate constant array for simple arrays, and buffer arrays
+        // Then we only loop over the buffer arrays to call their
+        // configure. The only issue is that we need to eventually
+        // stitch them all back together
+        // into a single statically allocated iio_chan_spec[]
+        // Probably some macro magic can accomplish this.
+        // For the future, we'd probably also need to add a separate
+        // one for events, and maybe others depending if the C code expands
+
         // TODO use iio_device_register instead?
         // TODO Safety
         // If ret is negative register has failed
@@ -104,25 +130,21 @@ pub enum Mode {
 
 #[vtable]
 pub trait Driver: Sized {
-    type Ptr;
+    type Ptr: ForeignOwnable + Send + Sync;
+    // const CHANNELS2: &'static [&dyn ChanSpec];
     const CHANNELS: &'static [Specification];
     fn read_raw(
-        indio_dev: &Registration<Self>,
+        data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
         _channel: &Specification,
-        _val: &i32,
-        _snd: &i32,
-        _mask: isize,
-    ) -> IIOValue {
+    ) -> SensorResult<i32> {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 
     fn write_raw(
-        indio_dev: &Registration<Self>,
+        data: <Self::Ptr as ForeignOwnable>::BorrowedMut<'_>,
         _channel: &Specification,
-        _fst: i32,
-        _snd: i32,
-        _mask: isize,
-    ) {
+        _value: i32,
+    ) -> Result {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 }
@@ -134,16 +156,23 @@ impl<T: Driver> IioVTableAdapter<T> {
         indio_dev: *mut bindings::iio_dev,
         iio_chan_spec: *const bindings::iio_chan_spec,
         val: *mut ffi::c_int,
-        val2: *mut ffi::c_int,
+        // Ignore for now
+        _val2: *mut ffi::c_int,
         mask: isize,
     ) -> ffi::c_int {
-        let st = unsafe { &*bindings::iio_priv(indio_dev).cast::<T::Ptr>() };
-        let indio_dev = unsafe { &*indio_dev.cast::<Registration<T>>() };
-        let val = unsafe { &*val.cast::<i32>() };
-        let val2 = unsafe { &*val2.cast::<i32>() };
-        let channel = unsafe { &*iio_chan_spec.cast::<Specification>() };
-        let ret = T::read_raw(indio_dev, channel, val, val2, mask);
-        ret as ffi::c_int
+        // Copied from kernel::miscdevice
+        let private = unsafe { bindings::iio_priv(indio_dev)}.cast();
+        let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
+        let device = unsafe { <T::Ptr as ForeignOwnable>::borrow(private) };
+
+
+        // TODO need to check the mask before casting
+        let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
+        let ret = T::read_raw(device, channel);
+
+        // // TODO check if val is always not null
+        unsafe { *val = ret.inner(); }
+        SensorResult::VALUE_TYPE as ffi::c_int
     }
     unsafe extern "C" fn write_raw(
         indio_dev: *mut bindings::iio_dev,
@@ -152,7 +181,19 @@ impl<T: Driver> IioVTableAdapter<T> {
         val2: ffi::c_int,
         mask: isize,
     ) -> ffi::c_int {
-        todo!()
+        // Copied from kernel::miscdevice
+        let private = unsafe { bindings::iio_priv(indio_dev)}.cast();
+        let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
+        let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
+
+        // TODO need to check the mask before casting
+        let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
+        match T::write_raw(device, channel, val) {
+            Ok(_) => IIOValue::Int as ffi::c_int,
+            // TODO can I return kernel errors here?
+            Err(_) => EINVAL.to_errno(),
+        }
+
     }
 
     const VTABLE: bindings::iio_info = bindings::iio_info {
