@@ -71,12 +71,13 @@ impl i2c::Driver for Cm3232 {
     }
 }
 
-#[vtable]
-impl iio::Driver for Cm3232 {
-    type Ptr = Pin<KBox<Self>>;
-    const CHANNELS: &'static [iio::Specification] = &[
-        iio::Specification::new(iio::ChannelType::Light),
-    ];
+// #[vtable]
+// impl iio::Driver for Cm3232 {
+//     type Data = Mutex<DummyState>;
+//     type Ptr = Pin<KBox<Self::Data>>;
+//     const CHANNELS: &'static [iio::Specification] = &[
+//         iio::Specification::new(iio::ChannelType::Light),
+//     ];
 
     // fn read_raw<T>(indio_dev: &mut iio::Registration<Self>, _channel: &iio::IioChanSpec, _val: i32, _val2: i32, _mask: isize) {
     //     todo!()
@@ -84,4 +85,4 @@ impl iio::Driver for Cm3232 {
     // fn write_raw<T>(indio_dev: &mut iio::Registration<Self>, _channel: &iio::IioChanSpec, _val: i32, _val2: i32, _mask: isize) {
     //     todo!()
     // }
-}
+// }
