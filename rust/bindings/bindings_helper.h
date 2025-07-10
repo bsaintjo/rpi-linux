@@ -58,7 +58,7 @@
 #include <linux/iio/events.h>
 #include <linux/iio/buffer.h>
 #include <linux/iio/trigger.h>
-#include <linux/iio/sw_device.h>
+#include <linux/iio/triggered_buffer.h>
 #include <linux/jiffies.h>
 #include <linux/jump_label.h>
 #include <linux/mdio.h>
