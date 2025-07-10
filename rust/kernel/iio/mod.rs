@@ -1,12 +1,51 @@
 use core::{marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
 
-use crate::{device::Device, error::VTABLE_DEFAULT_ERROR, iio::channels::Simple, prelude::*, str::CStr, types::ForeignOwnable, ThisModule};
+use crate::{device::Device, error::{to_result, VTABLE_DEFAULT_ERROR}, iio::channels::Simple, prelude::*, str::CStr, types::{ForeignOwnable, Opaque}, ThisModule};
 
 pub mod channels;
 pub mod trigger;
 mod buffer;
 
 pub use channels::{ChannelType, IIOValue, Specification, SensorResult};
+
+#[repr(transparent)]
+#[pin_data(PinnedDrop)]
+pub struct BetterRegistration<T> {
+    #[pin]
+    indio_dev: Opaque<bindings::iio_dev>,
+    _priv: PhantomData<T>
+}
+
+impl<'a, 'b, T: Driver> BetterRegistration<T> {
+    pub fn new(
+        dev: &'a Device,
+        module: &'static ThisModule,
+        options: &'b RegistrationOptions,
+    ) -> impl PinInit<Self, Error> + use<'a, 'b, T> {
+
+        try_pin_init!(Self {
+            indio_dev <- Opaque::try_ffi_init(move |slot: *mut bindings::iio_dev| {
+                unsafe {
+                    (*slot).name = options.name.as_char_ptr();
+                    (*slot).channels = T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec;
+                    (*slot).num_channels = T::CHANNELS.len() as i32;
+                    (*slot).modes = Mode::Direct as i32;
+                    (*slot).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info;
+                    (*slot).device = build_error!("Need to initialize parent and device properly"); // TODO Need to intialize buffer 
+                }
+                to_result(unsafe { bindings::__devm_iio_device_register(dev.as_raw(), slot, module.as_ptr()) })
+            }),
+            _priv: PhantomData,
+        })
+    }
+}
+
+#[pinned_drop]
+impl<T> PinnedDrop for BetterRegistration<T> {
+    fn drop(self: Pin<&mut Self>) {
+        todo!()
+    }
+}
 
 pub struct RegistrationOptions {
     pub name: &'static CStr,
@@ -128,9 +167,17 @@ pub enum Mode {
     Direct = bindings::INDIO_DIRECT_MODE,
 }
 
+pub trait Wraps<D> { }
+
+impl<D> Wraps<D> for Pin<KBox<D>> { }
+impl<D> Wraps<D> for Pin<KBox<crate::sync::Mutex<D>>> { }
+impl<D> Wraps<D> for crate::sync::Mutex<D> { }
+impl<D> Wraps<D> for &'static D { }
+
 #[vtable]
 pub trait Driver: Sized {
-    type Ptr: ForeignOwnable + Send + Sync;
+    type Data;
+    type Ptr: ForeignOwnable + Send + Sync + Wraps<Self::Data>;
     // const CHANNELS2: &'static [&dyn ChanSpec];
     const CHANNELS: &'static [Specification];
     fn read_raw(
