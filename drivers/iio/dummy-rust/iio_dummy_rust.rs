@@ -56,11 +56,11 @@ impl iio::Driver for DummyDevice {
     type Ptr = Pin<KBox<Mutex<Self::Data>>>;
     const CHANNELS: &'static [iio::Specification] = DUMMY_CHANNELS;
 
-    fn read_raw(data: Pin<&Mutex<Self::Data>>, spec: &iio::Specification) -> iio::SensorResult<i32> {
+    fn read_raw(data: Pin<&Mutex<Self::Data>>, spec: &iio::Specification) -> iio::SensorData<i32> {
         match spec.channel_type() {
             iio::ChannelType::Voltage => {
                 let guard = data.lock();
-                iio::SensorResult::int(guard.dac_val)
+                iio::SensorData::int(guard.dac_val)
             }
             _ => todo!(),
         }

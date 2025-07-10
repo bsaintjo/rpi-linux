@@ -125,17 +125,17 @@ pub const PROCESSED: Mask = Mask(bindings::iio_chan_info_enum_IIO_CHAN_INFO_PROC
 pub const CALIBSCALE: Mask = Mask(bindings::iio_chan_info_enum_IIO_CHAN_INFO_CALIBSCALE);
 pub const INT_TIME: Mask = Mask(bindings::iio_chan_info_enum_IIO_CHAN_INFO_INT_TIME);
 
-pub struct SensorResult<T> {
+pub struct SensorData<T> {
     value: T,
 }
 
-impl<T> SensorResult<T> {
+impl<T> SensorData<T> {
     pub(crate) fn inner(self) -> T {
         self.value
     }
 }
 
-impl SensorResult<i32> {
+impl SensorData<i32> {
     pub const VALUE_TYPE: IIOValue = IIOValue::Int;
     pub fn int(value: i32) -> Self {
         Self { value }
@@ -189,6 +189,11 @@ pub enum ChannelType {
     Ph = bindings::iio_chan_type_IIO_PH,
     UvIndex = bindings::iio_chan_type_IIO_UVINDEX,
     ElectricalConductivity = bindings::iio_chan_type_IIO_ELECTRICALCONDUCTIVITY,
+    // TODO: From a talk a few years ago, it seemed like count sensors are moved out
+    // So maybe don't allow for implmenting count channels
+    // https://www.youtube.com/watch?v=644oH1FXdtE, 24:54, ABI 'mistakes'
+    // Need to check on the status, and add the deprecated attribute until confirmed
+    #[deprecated]
     Count = bindings::iio_chan_type_IIO_COUNT,
     Index = bindings::iio_chan_type_IIO_INDEX,
     Gravity = bindings::iio_chan_type_IIO_GRAVITY,

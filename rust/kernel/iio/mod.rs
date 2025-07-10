@@ -183,7 +183,7 @@ pub trait Driver: Sized {
     fn read_raw(
         data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
         _channel: &Specification,
-    ) -> SensorResult<i32> {
+    ) -> SensorData<i32> {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 
@@ -219,7 +219,7 @@ impl<T: Driver> IioVTableAdapter<T> {
 
         // // TODO check if val is always not null
         unsafe { *val = ret.inner(); }
-        SensorResult::VALUE_TYPE as ffi::c_int
+        SensorData::VALUE_TYPE as ffi::c_int
     }
     unsafe extern "C" fn write_raw(
         indio_dev: *mut bindings::iio_dev,
