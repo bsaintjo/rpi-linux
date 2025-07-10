@@ -1,7 +1,7 @@
 //! Implementation of a dummy device driver for the industrial I/O subsystem in Rust
 //!
 //! The goal is to demonstrate the Rust abstractions
-use kernel::{c_str, faux, iio, prelude::*, sync::Mutex};
+use kernel::{c_str, faux, iio::{self, channels::Buffered}, prelude::*, sync::Mutex};
 
 module! {
     type: DummyModule,
@@ -34,6 +34,9 @@ const DUMMY_CHANNELS: &'static [iio::Specification] =
         .as_output()
         .info_mask_separate(iio::channels::RAW)];
 
+const DUMMY_BUFFERED_CHANNELS: &'static [iio::Specification<Buffered>] =
+    &[iio::Specification::new_buffered(iio::ChannelType::Voltage)];
+
 struct DummyState {
     dac_val: i32,
 }
@@ -54,7 +57,7 @@ struct DummyDevice {
 impl iio::Driver for DummyDevice {
     type Data = DummyState;
     type Ptr = Pin<KBox<Mutex<Self::Data>>>;
-    const CHANNELS: &'static [iio::Specification] = DUMMY_CHANNELS;
+    const CHANNELS: &'static [iio::channels::Channel] = &kernel::concat_channels!(DUMMY_CHANNELS, DUMMY_BUFFERED_CHANNELS);
 
     fn read_raw(data: Pin<&Mutex<Self::Data>>, spec: &iio::Specification) -> iio::SensorData<i32> {
         match spec.channel_type() {

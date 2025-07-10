@@ -1,12 +1,12 @@
 use core::{marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
 
-use crate::{device::Device, error::{to_result, VTABLE_DEFAULT_ERROR}, iio::channels::Simple, prelude::*, str::CStr, types::{ForeignOwnable, Opaque}, ThisModule};
+use crate::{device::Device, error::{to_result, VTABLE_DEFAULT_ERROR}, iio::channels::{Buffered, Channel, Simple}, prelude::*, str::CStr, types::{ForeignOwnable, Opaque}, ThisModule};
 
 pub mod channels;
 pub mod trigger;
 mod buffer;
 
-pub use channels::{ChannelType, IIOValue, Specification, SensorResult};
+pub use channels::{ChannelType, SensorValue, Specification, SensorData};
 
 #[repr(transparent)]
 #[pin_data(PinnedDrop)]
@@ -31,7 +31,7 @@ impl<'a, 'b, T: Driver> BetterRegistration<T> {
                     (*slot).num_channels = T::CHANNELS.len() as i32;
                     (*slot).modes = Mode::Direct as i32;
                     (*slot).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info;
-                    (*slot).device = build_error!("Need to initialize parent and device properly"); // TODO Need to intialize buffer 
+                    // (*slot).device = build_error!("Need to initialize parent and device properly"); // TODO Need to intialize buffer 
                 }
                 to_result(unsafe { bindings::__devm_iio_device_register(dev.as_raw(), slot, module.as_ptr()) })
             }),
@@ -178,8 +178,8 @@ impl<D> Wraps<D> for &'static D { }
 pub trait Driver: Sized {
     type Data;
     type Ptr: ForeignOwnable + Send + Sync + Wraps<Self::Data>;
-    // const CHANNELS2: &'static [&dyn ChanSpec];
-    const CHANNELS: &'static [Specification];
+    const CHANNELS: &'static [Channel];
+
     fn read_raw(
         data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
         _channel: &Specification,
@@ -219,7 +219,7 @@ impl<T: Driver> IioVTableAdapter<T> {
 
         // // TODO check if val is always not null
         unsafe { *val = ret.inner(); }
-        SensorData::VALUE_TYPE as ffi::c_int
+        SensorData::SENSOR_VALUE as ffi::c_int
     }
     unsafe extern "C" fn write_raw(
         indio_dev: *mut bindings::iio_dev,
@@ -236,7 +236,7 @@ impl<T: Driver> IioVTableAdapter<T> {
         // TODO need to check the mask before casting
         let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
         match T::write_raw(device, channel, val) {
-            Ok(_) => IIOValue::Int as ffi::c_int,
+            Ok(_) => SensorValue::Int as ffi::c_int,
             // TODO can I return kernel errors here?
             Err(_) => EINVAL.to_errno(),
         }

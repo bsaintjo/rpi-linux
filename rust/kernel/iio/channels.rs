@@ -1,14 +1,6 @@
-use core::{marker::PhantomData, mem::MaybeUninit};
+use core::{any::Any, marker::PhantomData, mem::MaybeUninit};
 
 use crate::iio::buffer::BufferChannel;
-
-struct Channels(&'static [Specification]);
-
-impl Channels {
-    const fn as_raw(self) -> *const bindings::iio_chan_spec {
-        todo!()
-    }
-}
 
 // TODO: Explore a more thickly wrapped Specification on top of this one
 // This way, we can use pattern matching to make the Rust side more ergonomic
@@ -29,12 +21,28 @@ impl Channels {
 // }
 
 #[repr(transparent)]
+#[derive(Copy, Clone, Default)]
 pub struct Specification<T = Simple> {
     spec: bindings::iio_chan_spec,
     _phantom: PhantomData<T>
 }
 
+#[derive(Copy, Clone, Default)]
 pub struct Simple;
+
+#[derive(Copy, Clone, Default)]
+pub struct Buffered;
+
+#[derive(Copy, Clone, Default)]
+pub struct Channel {
+    inner: bindings::iio_chan_spec
+}
+
+impl<T> Specification<T> {
+    pub const fn as_channel(&'static self) -> Channel {
+        unsafe { Channel { inner: self.spec }}
+    }
+}
 
 // Feature? Automatically infer return type via channel type?
 impl Specification<Simple> {
@@ -93,14 +101,15 @@ impl Specification<Simple> {
     }
 }
 
-impl<T: BufferChannel> Specification<T> {
+impl Specification<Buffered> {
     // TODO Can iio_chan_spec initialized to zero?
-    fn new(channel_type: ChannelType) -> Self {
+    pub const fn new_buffered(channel_type: ChannelType) -> Self {
         unsafe {
             Specification {
                 spec: bindings::iio_chan_spec {
                 type_: channel_type as ffi::c_uint,
-                scan_index: T::SCAN_TYPE.scan_index,
+                // scan_index: T::SCAN_TYPE.scan_index,
+                scan_index: 7,
                 ..MaybeUninit::zeroed().assume_init()
             },
                 _phantom: PhantomData, 
@@ -108,6 +117,31 @@ impl<T: BufferChannel> Specification<T> {
         }
     }
 }
+
+#[macro_export]
+macro_rules! concat_channels {
+    ($a:expr, $b:expr) => {{
+        let _a: &'static [$crate::iio::Specification<$crate::iio::channels::Simple>] = $a;
+        let _b: &'static [$crate::iio::Specification<$crate::iio::channels::Buffered>] = $b;
+        const LEN_A: usize = $a.len();
+        const LEN_B: usize = $b.len();
+        const LEN: usize = LEN_A + LEN_B;
+
+        let mut result = unsafe { [core::mem::zeroed(); LEN] };
+        let mut i = 0;
+        while i < LEN_A {
+            result[i] = $a[i].as_channel();
+            i += 1;
+        }
+        let mut j = 0;
+        while j < LEN_B {
+            result[LEN_A + j] = $b[j].as_channel();
+            j += 1;
+        }
+        result
+    }};
+}
+
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Mask(u32);
@@ -136,7 +170,7 @@ impl<T> SensorData<T> {
 }
 
 impl SensorData<i32> {
-    pub const VALUE_TYPE: IIOValue = IIOValue::Int;
+    pub const SENSOR_VALUE: SensorValue = SensorValue::Int;
     pub fn int(value: i32) -> Self {
         Self { value }
     }
@@ -145,7 +179,7 @@ impl SensorData<i32> {
 /// Represents the return type
 #[derive(Copy, Clone)]
 #[repr(u32)]
-pub enum IIOValue {
+pub enum SensorValue {
     Int = bindings::IIO_VAL_INT,
     PlusMicro = bindings::IIO_VAL_INT_PLUS_MICRO,
     PlusNano = bindings::IIO_VAL_INT_PLUS_NANO,
