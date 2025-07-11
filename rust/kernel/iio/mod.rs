@@ -36,15 +36,7 @@ impl<T: Driver> Registration<T> {
         module: &'static ThisModule,
         options: &RegistrationOptions,
     ) -> Result<Self> {
-        // Size is probably wrong, needs to be the T::Ptr, private data
-        // TODO: Instead of iio_priv, store private data on the Rust side?
         let sizeof_priv = core::mem::size_of::<T>() as ffi::c_int;
-
-        // On failure, iio_device_alloc returns NULL
-        // let indio_dev = unsafe { bindings::iio_device_alloc(dev.as_raw(), sizeof_priv) };
-        // let indio_dev = Opaque::ffi_init(|indio_dev: *mut bindings::iio_dev| {
-        //     unsafe { indio_dev.write( bindings::iio_device_alloc(dev.as_raw(), sizeof_priv)  ) };
-        // });
         let indio_dev = unsafe { bindings::iio_device_alloc(dev.as_raw(), sizeof_priv) };
         if indio_dev.is_null() {
             return Err(ENOMEM);
