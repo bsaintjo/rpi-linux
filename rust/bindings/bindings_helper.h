@@ -54,6 +54,7 @@
 #include <linux/fs.h>
 #include <linux/i2c.h>
 #include <linux/iio/iio.h>
+#include <linux/iio/iio-opaque.h>
 #include <linux/iio/sysfs.h>
 #include <linux/iio/events.h>
 #include <linux/iio/buffer.h>
