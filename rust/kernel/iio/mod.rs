@@ -5,47 +5,9 @@ use crate::{device::Device, error::{to_result, VTABLE_DEFAULT_ERROR}, iio::chann
 pub mod channels;
 pub mod trigger;
 mod buffer;
+mod revamp;
 
 pub use channels::{ChannelType, SensorValue, Specification, SensorData};
-
-#[repr(transparent)]
-#[pin_data(PinnedDrop)]
-pub struct BetterRegistration<T> {
-    #[pin]
-    indio_dev: Opaque<bindings::iio_dev>,
-    _priv: PhantomData<T>
-}
-
-impl<'a, 'b, T: Driver> BetterRegistration<T> {
-    pub fn new(
-        dev: &'a Device,
-        module: &'static ThisModule,
-        options: &'b RegistrationOptions,
-    ) -> impl PinInit<Self, Error> + use<'a, 'b, T> {
-
-        try_pin_init!(Self {
-            indio_dev <- Opaque::try_ffi_init(move |slot: *mut bindings::iio_dev| {
-                unsafe {
-                    (*slot).name = options.name.as_char_ptr();
-                    (*slot).channels = T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec;
-                    (*slot).num_channels = T::CHANNELS.len() as i32;
-                    (*slot).modes = Mode::Direct as i32;
-                    (*slot).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info;
-                    // (*slot).device = build_error!("Need to initialize parent and device properly"); // TODO Need to intialize buffer 
-                }
-                to_result(unsafe { bindings::__devm_iio_device_register(dev.as_raw(), slot, module.as_ptr()) })
-            }),
-            _priv: PhantomData,
-        })
-    }
-}
-
-#[pinned_drop]
-impl<T> PinnedDrop for BetterRegistration<T> {
-    fn drop(self: Pin<&mut Self>) {
-        todo!()
-    }
-}
 
 pub struct RegistrationOptions {
     pub name: &'static CStr,
