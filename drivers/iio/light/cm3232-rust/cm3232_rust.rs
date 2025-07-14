@@ -1,8 +1,7 @@
 use kernel::{
-    c_str, i2c, of,
+    c_str, i2c, iio, of,
     prelude::*,
     regmap::{self, BitFieldReadOps, BitFieldWriteOps, RawFieldWriteOps},
-    iio,
     sync::{new_mutex, Arc, Mutex},
 };
 // use register::*;
@@ -79,10 +78,10 @@ impl i2c::Driver for Cm3232 {
 //         iio::Specification::new(iio::ChannelType::Light),
 //     ];
 
-    // fn read_raw<T>(indio_dev: &mut iio::Registration<Self>, _channel: &iio::IioChanSpec, _val: i32, _val2: i32, _mask: isize) {
-    //     todo!()
-    // }
-    // fn write_raw<T>(indio_dev: &mut iio::Registration<Self>, _channel: &iio::IioChanSpec, _val: i32, _val2: i32, _mask: isize) {
-    //     todo!()
-    // }
+// fn read_raw<T>(indio_dev: &mut iio::Registration<Self>, _channel: &iio::IioChanSpec, _val: i32, _val2: i32, _mask: isize) {
+//     todo!()
+// }
+// fn write_raw<T>(indio_dev: &mut iio::Registration<Self>, _channel: &iio::IioChanSpec, _val: i32, _val2: i32, _mask: isize) {
+//     todo!()
+// }
 // }
