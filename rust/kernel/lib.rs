@@ -81,9 +81,9 @@ pub mod firmware;
 pub mod fs;
 #[cfg(CONFIG_I2C)]
 pub mod i2c;
+pub mod iio;
 pub mod init;
 pub mod io;
-pub mod iio;
 pub mod ioctl;
 pub mod jump_label;
 #[cfg(CONFIG_KUNIT)]
