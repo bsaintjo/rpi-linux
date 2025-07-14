@@ -24,7 +24,7 @@ use crate::iio::buffer::BufferChannel;
 #[derive(Copy, Clone, Default)]
 pub struct Specification<T = Simple> {
     spec: bindings::iio_chan_spec,
-    _phantom: PhantomData<T>
+    _phantom: PhantomData<T>,
 }
 
 #[derive(Copy, Clone, Default)]
@@ -35,12 +35,12 @@ pub struct Buffered;
 
 #[derive(Copy, Clone, Default)]
 pub struct Channel {
-    inner: bindings::iio_chan_spec
+    inner: bindings::iio_chan_spec,
 }
 
 impl<T> Specification<T> {
     pub const fn as_channel(&'static self) -> Channel {
-        unsafe { Channel { inner: self.spec }}
+        unsafe { Channel { inner: self.spec } }
     }
 }
 
@@ -51,11 +51,11 @@ impl Specification<Simple> {
         unsafe {
             Specification {
                 spec: bindings::iio_chan_spec {
-                type_: channel_type as ffi::c_uint,
-                scan_index: -1,
-                ..MaybeUninit::zeroed().assume_init()
-            },
-                _phantom: PhantomData, 
+                    type_: channel_type as ffi::c_uint,
+                    scan_index: -1,
+                    ..MaybeUninit::zeroed().assume_init()
+                },
+                _phantom: PhantomData,
             }
         }
     }
@@ -68,7 +68,6 @@ impl Specification<Simple> {
     pub fn is_differential(&self) -> bool {
         true
     }
-
 
     pub const fn info_mask_separate(mut self, mask: Mask) -> Self {
         self.spec.info_mask_separate = mask.0 as isize;
@@ -107,12 +106,12 @@ impl Specification<Buffered> {
         unsafe {
             Specification {
                 spec: bindings::iio_chan_spec {
-                type_: channel_type as ffi::c_uint,
-                // scan_index: T::SCAN_TYPE.scan_index,
-                scan_index: 7,
-                ..MaybeUninit::zeroed().assume_init()
-            },
-                _phantom: PhantomData, 
+                    type_: channel_type as ffi::c_uint,
+                    // scan_index: T::SCAN_TYPE.scan_index,
+                    scan_index: 7,
+                    ..MaybeUninit::zeroed().assume_init()
+                },
+                _phantom: PhantomData,
             }
         }
     }
@@ -142,7 +141,6 @@ macro_rules! concat_channels {
     }};
 }
 
-
 #[derive(Clone, Copy, PartialEq)]
 pub struct Mask(u32);
 
@@ -170,10 +168,17 @@ impl<T> SensorData<T> {
 }
 
 impl SensorData<i32> {
-    pub const SENSOR_VALUE: SensorValue = SensorValue::Int;
     pub fn int(value: i32) -> Self {
         Self { value }
     }
+}
+
+pub trait Sensor {
+    const SENSOR_VALUE: SensorValue;
+}
+
+impl Sensor for SensorData<i32> {
+    const SENSOR_VALUE: SensorValue = SensorValue::Int;
 }
 
 /// Represents the return type
