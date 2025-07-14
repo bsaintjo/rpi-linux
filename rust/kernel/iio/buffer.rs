@@ -15,9 +15,8 @@ pub struct ScanElement {
     pub storagebits: u8,
     pub shift: u8,
     pub repeat: u8,
-    pub endianness: Endian
+    pub endianness: Endian,
 }
-
 
 #[repr(u32)]
 #[derive(Copy, Clone)]
@@ -45,7 +44,6 @@ pub trait BufferChannel {
 
 pub struct BufferOpsVtable<T: BufferChannel>(PhantomData<T>);
 
-
 impl<T: BufferChannel> BufferOpsVtable<T> {
     unsafe extern "C" fn preenable(iio_dev: *mut bindings::iio_dev) -> ffi::c_int {
         todo!()
@@ -63,7 +61,10 @@ impl<T: BufferChannel> BufferOpsVtable<T> {
         todo!()
     }
 
-    unsafe extern "C" fn validate_scan_mask(indio_dev: *mut bindings::iio_dev, scan_mask: *const usize) -> bool {
+    unsafe extern "C" fn validate_scan_mask(
+        indio_dev: *mut bindings::iio_dev,
+        scan_mask: *const usize,
+    ) -> bool {
         todo!()
     }
     unsafe extern "C" fn thread(irq: ffi::c_int, p: *mut ffi::c_void) -> bindings::irqreturn_t {
@@ -71,11 +72,31 @@ impl<T: BufferChannel> BufferOpsVtable<T> {
     }
 
     const VTABLE: bindings::iio_buffer_setup_ops = iio_buffer_setup_ops {
-        preenable: if T::HAS_PREENABLE { Some(Self::preenable) } else { None },
-        postenable: if T::HAS_POSTENABLE { Some(Self::postenable) } else { None },
-        predisable: if T::HAS_PREDISABLE { Some(Self::predisable) } else { None },
-        postdisable: if T::HAS_POSTDISABLE { Some(Self::postdisable) } else { None },
-        validate_scan_mask: if T::HAS_VALIDATE_SCAN_MASK { Some(Self::validate_scan_mask) } else { None },
+        preenable: if T::HAS_PREENABLE {
+            Some(Self::preenable)
+        } else {
+            None
+        },
+        postenable: if T::HAS_POSTENABLE {
+            Some(Self::postenable)
+        } else {
+            None
+        },
+        predisable: if T::HAS_PREDISABLE {
+            Some(Self::predisable)
+        } else {
+            None
+        },
+        postdisable: if T::HAS_POSTDISABLE {
+            Some(Self::postdisable)
+        } else {
+            None
+        },
+        validate_scan_mask: if T::HAS_VALIDATE_SCAN_MASK {
+            Some(Self::validate_scan_mask)
+        } else {
+            None
+        },
     };
 
     const fn build() -> &'static iio_buffer_setup_ops {
