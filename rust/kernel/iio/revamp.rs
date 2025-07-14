@@ -9,7 +9,7 @@ use crate::{
     alloc::Allocator,
     device,
     error::{from_err_ptr, to_result, VTABLE_DEFAULT_ERROR},
-    iio::channels::{Buffered, Channel, Simple},
+    iio::channels::{Buffered, Channel, Sensor, Simple},
     prelude::*,
     str::CStr,
     types::{ARef, AlwaysRefCounted, ForeignOwnable, Opaque},
@@ -28,9 +28,8 @@ use crate::iio::channels::{ChannelType, SensorData, SensorValue, Specification};
 //     }
 // };
 
-#[derive(Zeroable)]
 #[repr(transparent)]
-#[pin_data]
+#[pin_data(PinnedDrop)]
 pub struct Device<T: Driver> {
     #[pin]
     indio_dev: Opaque<bindings::iio_dev>,
@@ -69,11 +68,17 @@ impl<T: Driver> Device<T> {
                 unsafe { *slot = *indio_dev };
                 // Safety: slot should still be ok for initialization
                 unsafe { (*slot).priv_ = T::init()?.into_foreign().cast() };
-                // let private: *mut T = unsafe { bindings::iio_priv(slot) }.cast();
-                // unsafe { private.write(data) };
-                // unsafe { data.__pinned_init(private) } if data is type impl PinInit
-                // Ok::<(), Error>(())
-                Ok(())
+                unsafe { (*slot).name = options.name.as_char_ptr(); }
+                unsafe { (*slot).channels = T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec;}
+                unsafe { (*slot).num_channels = T::CHANNELS.len() as i32; }
+                unsafe { (*slot).modes = Mode::Direct as i32; }
+                unsafe { (*slot).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info; }
+                unsafe { (*slot).dev.parent = parent.as_raw() };
+                // Ok(())
+                /// TODO Check which device register to use
+                /// __iio_device_register
+                /// __devm_iio_device_register - Seems like most RFL recommend no devm functions
+                to_result(unsafe { bindings::__iio_device_register(slot, module.as_ptr()) })
             }),
             _priv: PhantomData,
         })
@@ -119,32 +124,17 @@ impl<T: Driver> Device<T> {
     }
 }
 
-unsafe impl<T: Driver> AlwaysRefCounted for Device<T> {
-    fn inc_ref(&self) {
-        // SAFETY: The existence of a shared reference guarantees that the refcount is non-zero.
-        // unsafe { bindings::drm_dev_get(self.as_raw()) };
-        todo!()
-    }
-
-    unsafe fn dec_ref(obj: NonNull<Self>) {
-        // SAFETY: The safety requirements guarantee that the refcount is non-zero.
-        // unsafe { bindings::drm_dev_put(obj.cast().as_ptr()) };
+#[pinned_drop]
+impl<T: Driver> PinnedDrop for Device<T> {
+    fn drop(self: Pin<&mut Self>) {
+        // Need to free the device, but before that,
+        // we need to grab out Self::Ptr from _priv and deallocate it on our side
+        // Set _priv to null(?)
+        // and free the device
+        // unsafe { bindings::iio_device_unregister(self.indio_dev.get()) };
         todo!()
     }
 }
-
-// #[pinned_drop]
-// impl<T> PinnedDrop for BetterRegistration<T> {
-//     fn drop(self: Pin<&mut Self>) {
-//         unsafe { bindings::iio_device_unregister(self.indio_dev.get()) };
-//     }
-// }
-
-// unsafe impl<T: Send + Sync> Send for Device<T> {}
-// unsafe impl<T: Send + Sync> Sync for Device<T> {}
-
-// TODO Sealed for now, figure out if necessary
-// impl<T: Send + Sync> crate::private::Sealed for Device<T> {}
 
 pub struct RegistrationOptions {
     pub name: &'static CStr,
@@ -166,7 +156,7 @@ pub trait Driver: Sized {
     fn read_raw(
         data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
         _channel: &Specification,
-    ) -> SensorData<i32> {
+    ) -> Result<SensorData<i32>> {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 
@@ -191,19 +181,24 @@ impl<T: Driver> IioVTableAdapter<T> {
         mask: isize,
     ) -> ffi::c_int {
         // Copied from kernel::miscdevice
-        let private = unsafe { (*indio_dev).priv_ }.cast();
+        let private = unsafe { &raw mut (*indio_dev).priv_ }.cast();
         let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
         let device = unsafe { <T::Ptr as ForeignOwnable>::borrow(private) };
 
         // // TODO need to check the mask before casting
-        // let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
-        // let ret = T::read_raw(device, channel);
+        let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
+        match T::read_raw(device, channel) {
+            Ok(sdata) => {
+                unsafe {
+                    let val = val as *mut MaybeUninit<i32>;
+                    (*val).write(sdata.inner());
+                }
+                SensorData::<i32>::SENSOR_VALUE as ffi::c_int
+            }
+            Err(e) => e.to_errno(),
+        }
 
         // // Safety: val out-pointer maybe uninitialized
-        // unsafe { let val = val as *mut MaybeUninit<i32>; }
-        // unsafe { val.write(ret.inner()); }
-        // SensorData::SENSOR_VALUE as ffi::c_int
-        todo!()
     }
     unsafe extern "C" fn write_raw(
         indio_dev: *mut bindings::iio_dev,
@@ -213,7 +208,7 @@ impl<T: Driver> IioVTableAdapter<T> {
         mask: isize,
     ) -> ffi::c_int {
         // Copied from kernel::miscdevice
-        let private = unsafe { (*indio_dev).priv_ }.cast();
+        let private = unsafe { &raw mut (*indio_dev).priv_ }.cast();
         let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
         let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
 
@@ -251,14 +246,14 @@ mod type_test {
 
     use pin_init::pin_data;
 
-    use crate::prelude::*;
-    use crate::{c_str, faux, try_pin_init, types::ARef};
+    use kernel::prelude::*;
+    use kernel::{c_str, faux, try_pin_init, types::ARef};
 
     #[pin_data]
     struct MyModule {
         faux: faux::Registration,
         #[pin]
-        dev: super::Device<Data>,
+        dev: kernel::iio::revamp::Device<Data>,
     }
 
     impl kernel::InPlaceModule for MyModule {
@@ -275,11 +270,11 @@ mod type_test {
             };
             let options = super::RegistrationOptions {
                 name: c_str!("test2"),
-                mode: crate::iio::revamp::Mode::Direct,
+                mode: kernel::iio::revamp::Mode::Direct,
             };
             try_pin_init!(Self {
                 faux: faux?,
-                dev <- super::Device::register(dev?, module, options),
+                dev <- kernel::iio::revamp::Device::register(dev?, module, options),
             })
         }
     }
@@ -288,7 +283,7 @@ mod type_test {
         x: i32,
     }
 
-    impl super::Driver for Data {
+    impl kernel::iio::revamp::Driver for Data {
         const CHANNELS: &'static [super::Channel] = &[] as &'static [super::Channel];
         const USE_VTABLE_ATTR: () = ();
 
@@ -296,6 +291,13 @@ mod type_test {
 
         fn init() -> Result<Self::Ptr> {
             KBox::pin_init(init!(Data { x: 10 }), GFP_KERNEL)
+        }
+
+        fn read_raw(
+            data: <Self::Ptr as crate::types::ForeignOwnable>::Borrowed<'_>,
+            _channel: &crate::iio::Specification,
+        ) -> Result<crate::iio::SensorData<i32>> {
+            Ok(kernel::iio::channels::SensorData::int(data.x))
         }
     }
 }

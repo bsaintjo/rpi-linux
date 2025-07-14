@@ -1,13 +1,21 @@
 use core::{marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
 
-use crate::{device::Device, error::{to_result, VTABLE_DEFAULT_ERROR}, iio::channels::{Buffered, Channel, Simple}, prelude::*, str::CStr, types::{ForeignOwnable, Opaque}, ThisModule};
+use crate::{
+    device::Device,
+    error::{to_result, VTABLE_DEFAULT_ERROR},
+    iio::channels::{Buffered, Channel, Sensor, Simple},
+    prelude::*,
+    str::CStr,
+    types::{ForeignOwnable, Opaque},
+    ThisModule,
+};
 
-pub mod channels;
-pub mod trigger;
 mod buffer;
-mod revamp;
+pub mod channels;
+pub mod revamp;
+pub mod trigger;
 
-pub use channels::{ChannelType, SensorValue, Specification, SensorData};
+pub use channels::{ChannelType, SensorData, SensorValue, Specification};
 
 pub struct RegistrationOptions {
     pub name: &'static CStr,
@@ -121,12 +129,12 @@ pub enum Mode {
     Direct = bindings::INDIO_DIRECT_MODE,
 }
 
-pub trait Wraps<D> { }
+pub trait Wraps<D> {}
 
-impl<D> Wraps<D> for Pin<KBox<D>> { }
-impl<D> Wraps<D> for Pin<KBox<crate::sync::Mutex<D>>> { }
-impl<D> Wraps<D> for crate::sync::Mutex<D> { }
-impl<D> Wraps<D> for &'static D { }
+impl<D> Wraps<D> for Pin<KBox<D>> {}
+impl<D> Wraps<D> for Pin<KBox<crate::sync::Mutex<D>>> {}
+impl<D> Wraps<D> for crate::sync::Mutex<D> {}
+impl<D> Wraps<D> for &'static D {}
 
 #[vtable]
 pub trait Driver: Sized {
@@ -162,18 +170,20 @@ impl<T: Driver> IioVTableAdapter<T> {
         mask: isize,
     ) -> ffi::c_int {
         // Copied from kernel::miscdevice
-        let private = unsafe { bindings::iio_priv(indio_dev)}.cast();
+        let private = unsafe { bindings::iio_priv(indio_dev) }.cast();
         let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
         let device = unsafe { <T::Ptr as ForeignOwnable>::borrow(private) };
-
 
         // TODO need to check the mask before casting
         let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
         let ret = T::read_raw(device, channel);
 
         // // TODO check if val is always not null
-        unsafe { *val = ret.inner(); }
-        SensorData::SENSOR_VALUE as ffi::c_int
+        unsafe {
+            *val = ret.inner();
+        }
+        // <ret as Sensor>::SENSOR_VALUE as ffi::c_int
+        todo!()
     }
     unsafe extern "C" fn write_raw(
         indio_dev: *mut bindings::iio_dev,
@@ -183,7 +193,7 @@ impl<T: Driver> IioVTableAdapter<T> {
         mask: isize,
     ) -> ffi::c_int {
         // Copied from kernel::miscdevice
-        let private = unsafe { bindings::iio_priv(indio_dev)}.cast();
+        let private = unsafe { bindings::iio_priv(indio_dev) }.cast();
         let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
         let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
 
@@ -194,7 +204,6 @@ impl<T: Driver> IioVTableAdapter<T> {
             // TODO can I return kernel errors here?
             Err(_) => EINVAL.to_errno(),
         }
-
     }
 
     const VTABLE: bindings::iio_info = bindings::iio_info {
