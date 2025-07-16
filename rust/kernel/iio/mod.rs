@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 #![allow(missing_docs)]
-use core::{marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
+use core::{marker::PhantomData, mem::MaybeUninit, ptr::{self, NonNull}};
 
 use crate::{
     device::Device,
@@ -27,19 +27,24 @@ pub struct RegistrationOptions {
 
 // TODO: Instead of iio_priv, store private data on the Rust side?
 #[repr(transparent)]
-#[pin_data(PinnedDrop)]
-pub struct Registration<T> {
-    #[pin]
+pub struct Registration<T: Driver> {
     indio_dev: NonNull<bindings::iio_dev>,
     _priv: PhantomData<T>,
 }
 
 // TODO Safety
-unsafe impl<T: Send + Sync> Send for Registration<T> {}
-unsafe impl<T: Send + Sync> Sync for Registration<T> {}
+unsafe impl<T: Send + Sync + Driver> Send for Registration<T> {}
+unsafe impl<T: Send + Sync + Driver> Sync for Registration<T> {}
 
 // TODO Sealed for now, figure out if necessary
-impl<T: Send + Sync> crate::private::Sealed for Registration<T> {}
+
+#[repr(transparent)]
+struct ChanSpec(bindings::iio_chan_spec);
+
+unsafe impl Send for ChanSpec {}
+unsafe impl Sync for ChanSpec {}
+
+static FAKECHANNELS: &'static [ChanSpec] = &[];
 
 impl<T: Driver> Registration<T> {
     pub fn new(
@@ -48,23 +53,28 @@ impl<T: Driver> Registration<T> {
         options: &RegistrationOptions,
     ) -> Result<Self> {
         // let sizeof_priv = core::mem::size_of::<T>() as ffi::c_int;
-        dev_info!(dev, "Registering with device as parent");
+        pr_info!("iio: Registering with device as parent");
         let sizeof_priv = 0 as ffi::c_int;
-        let indio_dev = unsafe { bindings::iio_device_alloc(dev.as_raw(), sizeof_priv) };
+        let indio_dev = unsafe { bindings::devm_iio_device_alloc(dev.as_raw(), sizeof_priv) };
         if indio_dev.is_null() {
             return Err(ENOMEM);
         }
 
         unsafe {
-            (*indio_dev).name = options.name.as_char_ptr();
             // Have &'static [Specification]
             // Need a *const iio_chan_spec
             // Specification is repr(transpent) iio_chan_spec
             // &'static[].as_ptr() should be valid since its static
-            (*indio_dev).channels = T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec;
-            (*indio_dev).num_channels = T::CHANNELS.len() as i32;
-            (*indio_dev).modes = Mode::Direct as i32;
-            (*indio_dev).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info;
+            // (*indio_dev).name = options.name.as_char_ptr();
+            // (*indio_dev).channels = T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec;
+            // (*indio_dev).num_channels = T::CHANNELS.len() as i32;
+            // (*indio_dev).modes = Mode::Direct as i32;
+            // (*indio_dev).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info;
+            ptr::addr_of_mut!((*indio_dev).name).write(options.name.as_char_ptr());
+            ptr::addr_of_mut!((*indio_dev).channels).write(FAKECHANNELS.as_ptr() as *const bindings::iio_chan_spec);
+            ptr::addr_of_mut!((*indio_dev).num_channels).write(FAKECHANNELS.len() as i32);
+            ptr::addr_of_mut!((*indio_dev).modes).write(Mode::Direct as i32);
+            ptr::addr_of_mut!((*indio_dev).info).write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
         }
         pr_info!("Initialized indio_dev");
 
@@ -120,32 +130,33 @@ impl<T: Driver> Registration<T> {
     }
 }
 
-#[pinned_drop]
-impl<T> PinnedDrop for Registration<T> {
-    fn drop(self: Pin<&mut Self>) {
+impl<T: Driver> Drop for Registration<T> {
+    fn drop(&mut self) {
         unsafe {
-            bindings::iio_device_unregister(self.indio_dev.as_ptr());
+//             bindings::iio_device_unregister(self.indio_dev.as_ptr());
             bindings::iio_device_free(self.indio_dev.as_ptr());
         }
     }
 }
+
+// #[pinned_drop]
+// impl<T> PinnedDrop for Registration<T> {
+//     fn drop(self: Pin<&mut Self>) {
+//         unsafe {
+//             bindings::iio_device_unregister(self.indio_dev.as_ptr());
+//             bindings::iio_device_free(self.indio_dev.as_ptr());
+//         }
+//     }
+// }
 
 #[repr(u32)]
 pub enum Mode {
     Direct = bindings::INDIO_DIRECT_MODE,
 }
 
-pub trait Wraps<D> {}
-
-impl<D> Wraps<D> for Pin<KBox<D>> {}
-impl<D> Wraps<D> for Pin<KBox<crate::sync::Mutex<D>>> {}
-impl<D> Wraps<D> for crate::sync::Mutex<D> {}
-impl<D> Wraps<D> for &'static D {}
-
 #[vtable]
 pub trait Driver: Sized {
-    type Data;
-    type Ptr: ForeignOwnable + Send + Sync + Wraps<Self::Data>;
+    type Ptr: ForeignOwnable + Sync + Send;
     const CHANNELS: &'static [Channel];
 
     fn read_raw(
@@ -175,19 +186,19 @@ impl<T: Driver> IioVTableAdapter<T> {
         _val2: *mut ffi::c_int,
         _mask: isize,
     ) -> ffi::c_int {
-        // Copied from kernel::miscdevice
-        let private = unsafe { bindings::iio_priv(_indio_dev) }.cast();
-        // let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
-        let device = unsafe { <T::Ptr as ForeignOwnable>::borrow(private) };
+        // // Copied from kernel::miscdevice
+        // let private = unsafe { bindings::iio_priv(_indio_dev) }.cast();
+        // // let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
+        // let device = unsafe { <T::Ptr as ForeignOwnable>::borrow(private) };
 
-        // TODO need to check the mask before casting
-        let channel = unsafe { &*_iio_chan_spec.cast::<Specification<Simple>>() };
-        let ret = T::read_raw(device, channel);
+        // // TODO need to check the mask before casting
+        // let channel = unsafe { &*_iio_chan_spec.cast::<Specification<Simple>>() };
+        // let ret = T::read_raw(device, channel);
 
-        // // TODO check if val is always not null
-        unsafe {
-            *_val = ret.inner();
-        }
+        // // // TODO check if val is always not null
+        // unsafe {
+        //     *_val = ret.inner();
+        // }
         // <ret as Sensor>::SENSOR_VALUE as ffi::c_int
         todo!()
     }
@@ -199,17 +210,18 @@ impl<T: Driver> IioVTableAdapter<T> {
         _mask: isize,
     ) -> ffi::c_int {
         // Copied from kernel::miscdevice
-        let private = unsafe { bindings::iio_priv(_indio_dev) }.cast();
-        // let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
-        let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
+        // let private = unsafe { bindings::iio_priv(_indio_dev) }.cast();
+        // // let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
+        // let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
 
-        // TODO need to check the mask before casting
-        let channel = unsafe { &*_iio_chan_spec.cast::<Specification<Simple>>() };
-        match T::write_raw(device, channel, _val) {
-            Ok(_) => SensorValue::Int as ffi::c_int,
-            // TODO can I return kernel errors here?
-            Err(_) => EINVAL.to_errno(),
-        }
+        // // TODO need to check the mask before casting
+        // let channel = unsafe { &*_iio_chan_spec.cast::<Specification<Simple>>() };
+        // match T::write_raw(device, channel, _val) {
+        //     Ok(_) => SensorValue::Int as ffi::c_int,
+        //     // TODO can I return kernel errors here?
+        //     Err(_) => EINVAL.to_errno(),
+        // }
+        todo!()
     }
 
     const VTABLE: bindings::iio_info = bindings::iio_info {
