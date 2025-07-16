@@ -86,8 +86,6 @@
 //     }
 // }
 
-use core::ptr::NonNull;
-
 use pin_init::pin_data;
 
 use kernel::prelude::*;
@@ -139,10 +137,10 @@ const DUMMY_CHANNELS: &'static [kernel::iio::Specification] =
         .as_output()
         .info_mask_separate(kernel::iio::channels::RAW)];
 
-const DUMMY_BUFFERED_CHANNELS: &'static [kernel::iio::Specification<Buffered>] =
+const DUMMY_BUFFERED_CHANNELS: &'static [kernel::iio::Specification<kernel::iio::channels::Buffered>] =
     &[kernel::iio::Specification::new_buffered(kernel::iio::ChannelType::Voltage)];
 
-impl kernel::iio::revamp::Driven for Data {
+impl kernel::iio::revamp::Driver for Data {
     const CHANNELS: &'static [kernel::iio::channels::Channel] = &kernel::concat_channels!(DUMMY_CHANNELS, DUMMY_BUFFERED_CHANNELS);
     const USE_VTABLE_ATTR: () = ();
 

@@ -1,6 +1,6 @@
-use core::{any::Any, marker::PhantomData, mem::MaybeUninit};
+#![allow(dead_code)]
 
-use crate::iio::buffer::BufferChannel;
+use core::{marker::PhantomData, mem::MaybeUninit};
 
 // TODO: Explore a more thickly wrapped Specification on top of this one
 // This way, we can use pattern matching to make the Rust side more ergonomic
@@ -40,7 +40,7 @@ pub struct Channel {
 
 impl<T> Specification<T> {
     pub const fn as_channel(&'static self) -> Channel {
-        unsafe { Channel { inner: self.spec } }
+        Channel { inner: self.spec } 
     }
 }
 

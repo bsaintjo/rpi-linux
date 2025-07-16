@@ -1,19 +1,22 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(missing_docs)]
 use core::{marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
 
 use crate::{
     device::Device,
-    error::{to_result, VTABLE_DEFAULT_ERROR},
-    iio::channels::{Buffered, Channel, Sensor, Simple},
+    error::{VTABLE_DEFAULT_ERROR},
+    iio::channels::{Channel, Simple},
     prelude::*,
     str::CStr,
-    types::{ForeignOwnable, Opaque},
+    types::{ForeignOwnable},
     ThisModule,
 };
 
-mod buffer;
+// mod buffer;
 pub mod channels;
 pub mod revamp;
-pub mod trigger;
+// pub mod trigger;
 
 pub use channels::{ChannelType, SensorData, SensorValue, Specification};
 
@@ -44,7 +47,9 @@ impl<T: Driver> Registration<T> {
         module: &'static ThisModule,
         options: &RegistrationOptions,
     ) -> Result<Self> {
-        let sizeof_priv = core::mem::size_of::<T>() as ffi::c_int;
+        // let sizeof_priv = core::mem::size_of::<T>() as ffi::c_int;
+        dev_info!(dev, "Registering with device as parent");
+        let sizeof_priv = 0 as ffi::c_int;
         let indio_dev = unsafe { bindings::iio_device_alloc(dev.as_raw(), sizeof_priv) };
         if indio_dev.is_null() {
             return Err(ENOMEM);
@@ -61,6 +66,7 @@ impl<T: Driver> Registration<T> {
             (*indio_dev).modes = Mode::Direct as i32;
             (*indio_dev).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info;
         }
+        pr_info!("Initialized indio_dev");
 
         // TODO Here we need to do any other configuration with buffers, etc.
         // Possibly move into RegistrationOptions
@@ -143,14 +149,14 @@ pub trait Driver: Sized {
     const CHANNELS: &'static [Channel];
 
     fn read_raw(
-        data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
+        _data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
         _channel: &Specification,
     ) -> SensorData<i32> {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 
     fn write_raw(
-        data: <Self::Ptr as ForeignOwnable>::BorrowedMut<'_>,
+        _data: <Self::Ptr as ForeignOwnable>::BorrowedMut<'_>,
         _channel: &Specification,
         _value: i32,
     ) -> Result {
@@ -162,44 +168,44 @@ pub struct IioVTableAdapter<T: Driver>(PhantomData<T>);
 
 impl<T: Driver> IioVTableAdapter<T> {
     unsafe extern "C" fn read_raw(
-        indio_dev: *mut bindings::iio_dev,
-        iio_chan_spec: *const bindings::iio_chan_spec,
-        val: *mut ffi::c_int,
+        _indio_dev: *mut bindings::iio_dev,
+        _iio_chan_spec: *const bindings::iio_chan_spec,
+        _val: *mut ffi::c_int,
         // Ignore for now
         _val2: *mut ffi::c_int,
-        mask: isize,
+        _mask: isize,
     ) -> ffi::c_int {
         // Copied from kernel::miscdevice
-        let private = unsafe { bindings::iio_priv(indio_dev) }.cast();
-        let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
+        let private = unsafe { bindings::iio_priv(_indio_dev) }.cast();
+        // let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
         let device = unsafe { <T::Ptr as ForeignOwnable>::borrow(private) };
 
         // TODO need to check the mask before casting
-        let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
+        let channel = unsafe { &*_iio_chan_spec.cast::<Specification<Simple>>() };
         let ret = T::read_raw(device, channel);
 
         // // TODO check if val is always not null
         unsafe {
-            *val = ret.inner();
+            *_val = ret.inner();
         }
         // <ret as Sensor>::SENSOR_VALUE as ffi::c_int
         todo!()
     }
     unsafe extern "C" fn write_raw(
-        indio_dev: *mut bindings::iio_dev,
-        iio_chan_spec: *const bindings::iio_chan_spec,
-        val: ffi::c_int,
-        val2: ffi::c_int,
-        mask: isize,
+        _indio_dev: *mut bindings::iio_dev,
+        _iio_chan_spec: *const bindings::iio_chan_spec,
+        _val: ffi::c_int,
+        _val2: ffi::c_int,
+        _mask: isize,
     ) -> ffi::c_int {
         // Copied from kernel::miscdevice
-        let private = unsafe { bindings::iio_priv(indio_dev) }.cast();
-        let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
+        let private = unsafe { bindings::iio_priv(_indio_dev) }.cast();
+        // let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
         let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
 
         // TODO need to check the mask before casting
-        let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
-        match T::write_raw(device, channel, val) {
+        let channel = unsafe { &*_iio_chan_spec.cast::<Specification<Simple>>() };
+        match T::write_raw(device, channel, _val) {
             Ok(_) => SensorValue::Int as ffi::c_int,
             // TODO can I return kernel errors here?
             Err(_) => EINVAL.to_errno(),

@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 use core::marker::PhantomData;
 
 use kernel::prelude::*;
@@ -62,12 +63,12 @@ impl<T: BufferChannel> BufferOpsVtable<T> {
     }
 
     unsafe extern "C" fn validate_scan_mask(
-        indio_dev: *mut bindings::iio_dev,
-        scan_mask: *const usize,
+        _indio_dev: *mut bindings::iio_dev,
+        _scan_mask: *const usize,
     ) -> bool {
         todo!()
     }
-    unsafe extern "C" fn thread(irq: ffi::c_int, p: *mut ffi::c_void) -> bindings::irqreturn_t {
+    unsafe extern "C" fn thread(_irq: ffi::c_int, _p: *mut ffi::c_void) -> bindings::irqreturn_t {
         todo!()
     }
 

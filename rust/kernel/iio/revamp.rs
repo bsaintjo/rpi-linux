@@ -1,22 +1,19 @@
 use core::{
-    alloc::Layout,
     marker::PhantomData,
-    mem::{self, MaybeUninit},
-    ptr::{self, NonNull},
+    mem::{MaybeUninit},
 };
 
 use crate::{
-    alloc::Allocator,
     device,
-    error::{from_err_ptr, to_result, VTABLE_DEFAULT_ERROR},
-    iio::channels::{Buffered, Channel, Sensor, Simple},
+    error::{to_result, VTABLE_DEFAULT_ERROR},
+    iio::channels::{Channel, Sensor, Simple},
     prelude::*,
     str::CStr,
-    types::{ARef, AlwaysRefCounted, ForeignOwnable, Opaque},
+    types::{ARef, ForeignOwnable, Opaque},
     ThisModule,
 };
 
-use crate::iio::channels::{ChannelType, SensorData, SensorValue, Specification};
+use crate::iio::channels::{SensorData, Specification};
 
 // const IIO_DMA_MINALIGN: usize = {
 //     const ARCH_ALIGN: usize = bindings::ARCH_DMA_MINALIGN as usize;
@@ -60,25 +57,25 @@ impl<T: Driver> Device<T> {
                 // with no space for the private data, allocate it on our side
                 // and make the private pointer _priv point to our new data.
                 let indio_dev: *mut bindings::iio_dev = unsafe {
-                    bindings::iio_device_alloc(parent.as_raw(), 0)
+                    bindings::devm_iio_device_alloc(parent.as_raw(), 0)
                 };
                 if indio_dev.is_null() {
                     return Err(ENOMEM);
                 }
                 unsafe { *slot = *indio_dev };
                 // Safety: slot should still be ok for initialization
-                unsafe { (*slot).priv_ = T::init()?.into_foreign().cast() };
+                // unsafe { (*slot).priv_ = T::init()?.into_foreign().cast() };
                 unsafe { (*slot).name = options.name.as_char_ptr(); }
                 unsafe { (*slot).channels = T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec;}
                 unsafe { (*slot).num_channels = T::CHANNELS.len() as i32; }
                 unsafe { (*slot).modes = Mode::Direct as i32; }
                 unsafe { (*slot).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info; }
-                unsafe { (*slot).dev.parent = parent.as_raw() };
+                // unsafe { (*slot).dev.parent = parent.as_raw() };
                 // Ok(())
-                /// TODO Check which device register to use
-                /// __iio_device_register
-                /// __devm_iio_device_register - Seems like most RFL recommend no devm functions
-                to_result(unsafe { bindings::__iio_device_register(slot, module.as_ptr()) })
+                // TODO Check which device register to use
+                // __iio_device_register
+                // __devm_iio_device_register - Seems like most RFL recommend no devm functions
+                to_result(unsafe { bindings::__devm_iio_device_register(parent.as_raw(), slot, module.as_ptr()) })
             }),
             _priv: PhantomData,
         })
@@ -154,14 +151,14 @@ pub trait Driver: Sized {
     fn init() -> Result<Self::Ptr>;
 
     fn read_raw(
-        data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
+        _data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
         _channel: &Specification,
     ) -> Result<SensorData<i32>> {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 
     fn write_raw(
-        data: <Self::Ptr as ForeignOwnable>::BorrowedMut<'_>,
+        _data: <Self::Ptr as ForeignOwnable>::BorrowedMut<'_>,
         _channel: &Specification,
         _value: i32,
     ) -> Result {
@@ -178,11 +175,10 @@ impl<T: Driver> IioVTableAdapter<T> {
         val: *mut ffi::c_int,
         // Ignore for now
         _val2: *mut ffi::c_int,
-        mask: isize,
+        _mask: isize,
     ) -> ffi::c_int {
         // Copied from kernel::miscdevice
         let private = unsafe { &raw mut (*indio_dev).priv_ }.cast();
-        let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
         let device = unsafe { <T::Ptr as ForeignOwnable>::borrow(private) };
 
         // // TODO need to check the mask before casting
@@ -201,15 +197,14 @@ impl<T: Driver> IioVTableAdapter<T> {
         // // Safety: val out-pointer maybe uninitialized
     }
     unsafe extern "C" fn write_raw(
-        indio_dev: *mut bindings::iio_dev,
-        iio_chan_spec: *const bindings::iio_chan_spec,
-        val: ffi::c_int,
-        val2: ffi::c_int,
-        mask: isize,
+        _indio_dev: *mut bindings::iio_dev,
+        _iio_chan_spec: *const bindings::iio_chan_spec,
+        _val: ffi::c_int,
+        _val2: ffi::c_int,
+        _mask: isize,
     ) -> ffi::c_int {
         // Copied from kernel::miscdevice
-        let private = unsafe { &raw mut (*indio_dev).priv_ }.cast();
-        let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
+        let private = unsafe { &raw mut (*_indio_dev).priv_ }.cast();
         let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
 
         // // TODO need to check the mask before casting
@@ -242,8 +237,6 @@ impl<T: Driver> IioVTableAdapter<T> {
 }
 
 mod type_test {
-    use core::ptr::NonNull;
-
     use pin_init::pin_data;
 
     use kernel::prelude::*;
