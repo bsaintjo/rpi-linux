@@ -5,11 +5,11 @@ use core::{
 
 use crate::{
     device,
-    error::{to_result, VTABLE_DEFAULT_ERROR},
+    error::{VTABLE_DEFAULT_ERROR},
     iio::channels::{Channel, Sensor, Simple},
     prelude::*,
     str::CStr,
-    types::{ARef, ForeignOwnable, Opaque},
+    types::{ARef, ForeignOwnable, },
     ThisModule,
 };
 
@@ -37,7 +37,7 @@ unsafe impl<T: Send + Sync + Driver> Send for Device<T> {}
 unsafe impl<T: Send + Sync + Driver> Sync for Device<T> {}
 
 impl<T: Driver> Device<T> {
-    pub fn register<'a>(
+    pub fn register(
         parent: ARef<device::Device>,
         module: &'static ThisModule,
         options: RegistrationOptions,

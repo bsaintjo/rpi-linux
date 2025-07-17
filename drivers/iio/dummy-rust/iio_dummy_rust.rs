@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+#![allow(dead_code)]
 //! Implementation of a dummy device driver for the industrial I/O subsystem in Rust
 //!
 //! The goal is to demonstrate the Rust abstractions

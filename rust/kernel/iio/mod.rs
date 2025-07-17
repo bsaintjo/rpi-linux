@@ -6,7 +6,7 @@ use core::{marker::PhantomData, mem::MaybeUninit, ptr::{self, NonNull}};
 use crate::{
     device::Device,
     error::{VTABLE_DEFAULT_ERROR},
-    iio::channels::{Channel, Simple},
+    iio::channels::{Channel},
     prelude::*,
     str::CStr,
     types::{ForeignOwnable},
