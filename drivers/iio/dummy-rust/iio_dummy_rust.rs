@@ -3,7 +3,13 @@
 //! Implementation of a dummy device driver for the industrial I/O subsystem in Rust
 //!
 //! The goal is to demonstrate the Rust abstractions
-use kernel::{c_str, faux, iio::{self, channels::Buffered}, new_mutex, prelude::*, sync::Mutex};
+use kernel::{
+    c_str, faux,
+    iio::{self, channels::Buffered},
+    new_mutex,
+    prelude::*,
+    sync::Mutex,
+};
 
 module! {
     type: DummyModule,
@@ -52,9 +58,7 @@ impl Default for DummyState {
 
 impl DummyState {
     fn new() -> impl PinInit<Self, Error> {
-        try_pin_init!(Self {
-            dac_val: 10
-        })
+        try_pin_init!(Self { dac_val: 10 })
     }
 }
 
@@ -66,9 +70,12 @@ struct DummyDevice {
 
 impl DummyDevice {
     fn new() -> Result<Pin<KBox<Self>>> {
-        KBox::pin_init(pin_init!(Self {
-            st <- new_mutex!(DummyState::default())
-        }), GFP_KERNEL)
+        KBox::pin_init(
+            pin_init!(Self {
+                st <- new_mutex!(DummyState::default())
+            }),
+            GFP_KERNEL,
+        )
     }
 }
 
@@ -76,7 +83,8 @@ impl DummyDevice {
 impl iio::Driver for DummyDevice {
     // type Data = Pin<KBox<DummyState>>;
     type Ptr = Pin<KBox<DummyDevice>>;
-    const CHANNELS: &'static [iio::channels::Channel] = &kernel::concat_channels!(DUMMY_CHANNELS, DUMMY_BUFFERED_CHANNELS);
+    const CHANNELS: &'static [iio::channels::Channel] =
+        &kernel::concat_channels!(DUMMY_CHANNELS, DUMMY_BUFFERED_CHANNELS);
 
     fn read_raw(data: Pin<&Self>, spec: &iio::Specification) -> iio::SensorData<i32> {
         // match spec.channel_type() {

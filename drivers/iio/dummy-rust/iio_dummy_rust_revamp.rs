@@ -6,8 +6,8 @@
 
 use pin_init::pin_data;
 
-use kernel::{iio, prelude::*, types::ForeignOwnable};
 use kernel::{c_str, faux, try_pin_init, types::ARef};
+use kernel::{iio, prelude::*, types::ForeignOwnable};
 
 module! {
     type: MyModule,
@@ -53,9 +53,7 @@ struct DevData {
 
 impl DevData {
     fn init() -> impl PinInit<Self, Error> {
-        try_pin_init!(Self {
-            x: 10,
-        })
+        try_pin_init!(Self { x: 10 })
     }
 }
 
@@ -68,7 +66,8 @@ const DUMMY_BUFFERED_CHANNELS: &'static [iio::Specification<iio::channels::Buffe
     &[iio::Specification::new_buffered(iio::ChannelType::Voltage)];
 
 impl iio::revamp::Driver for DevData {
-    const CHANNELS: &'static [iio::channels::Channel] = &kernel::concat_channels!(DUMMY_CHANNELS, DUMMY_BUFFERED_CHANNELS);
+    const CHANNELS: &'static [iio::channels::Channel] =
+        &kernel::concat_channels!(DUMMY_CHANNELS, DUMMY_BUFFERED_CHANNELS);
     const USE_VTABLE_ATTR: () = ();
 
     type Ptr = Pin<KBox<DevData>>;
@@ -80,8 +79,8 @@ impl iio::revamp::Driver for DevData {
     ) -> Result<iio::SensorData<i32>> {
         Ok(iio::channels::SensorData::int(data.x))
     }
-    
-    fn read_raw2(data:Pin<&Self::Data>) {
+
+    fn read_raw2(data: Pin<&Self::Data>) {
         todo!()
     }
 }

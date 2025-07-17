@@ -1,15 +1,16 @@
 use core::{
     marker::PhantomData,
-    mem::MaybeUninit, ptr::{self, NonNull},
+    mem::MaybeUninit,
+    ptr::{self, NonNull},
 };
 
 use crate::{
     device,
-    error::{VTABLE_DEFAULT_ERROR},
+    error::VTABLE_DEFAULT_ERROR,
     iio::channels::{Channel, Sensor, Simple},
     prelude::*,
     str::CStr,
-    types::{ARef, ForeignOwnable, },
+    types::{ARef, ForeignOwnable},
     ThisModule,
 };
 
@@ -44,12 +45,20 @@ impl<T: Driver> Device<T> {
         data: impl PinInit<T::Data, Error>,
     ) -> impl PinInit<Self, Error> {
         try_pin_init!(Self {
-            indio_dev: NonNull::new(unsafe { bindings::devm_iio_device_alloc(parent.as_raw(), 0) }).ok_or(ENOMEM)?,
+            indio_dev: NonNull::new(unsafe { bindings::devm_iio_device_alloc(parent.as_raw(), 0) })
+                .ok_or(ENOMEM)?,
             _priv: PhantomData,
-        }).pin_chain(|this| {
+        })
+        .pin_chain(|this| {
             // ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_).write();
-            unsafe { ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info).write(IioVTableAdapter::<T>::build() as *const bindings::iio_info) ;}
-            unsafe { ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels).write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec) };
+            unsafe {
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
+                    .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
+            }
+            unsafe {
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
+                    .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec)
+            };
             todo!()
         })
 
@@ -254,10 +263,8 @@ mod type_test {
 
     impl DevData {
         fn init() -> impl PinInit<Self, Error> {
-            try_pin_init!(Self {
-                x: 10
-            })
-        } 
+            try_pin_init!(Self { x: 10 })
+        }
     }
 
     impl kernel::iio::revamp::Driver for DevData {
@@ -273,8 +280,8 @@ mod type_test {
         ) -> Result<crate::iio::SensorData<i32>> {
             Ok(kernel::iio::channels::SensorData::int(data.x))
         }
-        
-        fn read_raw2(data:Pin<&Self::Data>) {
+
+        fn read_raw2(data: Pin<&Self::Data>) {
             todo!()
         }
     }

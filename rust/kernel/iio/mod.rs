@@ -1,16 +1,15 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 #![allow(missing_docs)]
-use core::{marker::PhantomData, mem::MaybeUninit, ptr::{self, NonNull}};
+use core::{
+    marker::PhantomData,
+    mem::MaybeUninit,
+    ptr::{self, NonNull},
+};
 
 use crate::{
-    device::Device,
-    error::{VTABLE_DEFAULT_ERROR},
-    iio::channels::{Channel},
-    prelude::*,
-    str::CStr,
-    types::{ForeignOwnable},
-    ThisModule,
+    device::Device, error::VTABLE_DEFAULT_ERROR, iio::channels::Channel, prelude::*, str::CStr,
+    types::ForeignOwnable, ThisModule,
 };
 
 // mod buffer;
@@ -73,10 +72,12 @@ impl<T: Driver> Registration<T> {
             // (*indio_dev).modes = Mode::Direct as i32;
             // (*indio_dev).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info;
             ptr::addr_of_mut!((*indio_dev).name).write(options.name.as_char_ptr());
-            ptr::addr_of_mut!((*indio_dev).channels).write(FAKECHANNELS.as_ptr() as *const bindings::iio_chan_spec);
+            ptr::addr_of_mut!((*indio_dev).channels)
+                .write(FAKECHANNELS.as_ptr() as *const bindings::iio_chan_spec);
             ptr::addr_of_mut!((*indio_dev).num_channels).write(FAKECHANNELS.len() as i32);
             ptr::addr_of_mut!((*indio_dev).modes).write(Mode::Direct as i32);
-            ptr::addr_of_mut!((*indio_dev).info).write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
+            ptr::addr_of_mut!((*indio_dev).info)
+                .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
         }
         pr_info!("Initialized indio_dev");
 
@@ -135,7 +136,7 @@ impl<T: Driver> Registration<T> {
 impl<T: Driver> Drop for Registration<T> {
     fn drop(&mut self) {
         unsafe {
-//             bindings::iio_device_unregister(self.indio_dev.as_ptr());
+            //             bindings::iio_device_unregister(self.indio_dev.as_ptr());
             bindings::iio_device_free(self.indio_dev.as_ptr());
         }
     }
@@ -163,18 +164,11 @@ pub trait Driver: Sized {
     // type Ptr = Pin<KBox<Self>>;
     const CHANNELS: &'static [Channel];
 
-    fn read_raw(
-        _data: Pin<&Self>,
-        _channel: &Specification,
-    ) -> SensorData<i32> {
+    fn read_raw(_data: Pin<&Self>, _channel: &Specification) -> SensorData<i32> {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 
-    fn write_raw(
-        _data: Pin<&mut Self>,
-        _channel: &Specification,
-        _value: i32,
-    ) -> Result {
+    fn write_raw(_data: Pin<&mut Self>, _channel: &Specification, _value: i32) -> Result {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 }

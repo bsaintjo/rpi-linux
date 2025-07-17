@@ -40,7 +40,7 @@ pub struct Channel {
 
 impl<T> Specification<T> {
     pub const fn as_channel(&'static self) -> Channel {
-        Channel { inner: self.spec } 
+        Channel { inner: self.spec }
     }
 }
 
