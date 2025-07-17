@@ -1,7 +1,7 @@
 //! Implementation of a dummy device driver for the industrial I/O subsystem in Rust
 //!
 //! The goal is to demonstrate the Rust abstractions
-use kernel::{c_str, faux, iio::{self, channels::Buffered}, prelude::*, sync::Mutex};
+use kernel::{c_str, faux, iio::{self, channels::Buffered}, new_mutex, prelude::*, sync::Mutex};
 
 module! {
     type: DummyModule,
@@ -24,7 +24,7 @@ impl kernel::Module for DummyModule {
             mode: iio::Mode::Direct,
         };
         let _indio_dev: iio::Registration<DummyDevice> =
-            iio::Registration::new(_fdev.as_ref(), module, &options)?;
+            iio::Registration::new(_fdev.as_ref(), module, &options, DummyDevice::new()?)?;
         Ok(Self { _fdev, _indio_dev })
     }
 }
@@ -37,6 +37,7 @@ const DUMMY_CHANNELS: &'static [iio::Specification] =
 const DUMMY_BUFFERED_CHANNELS: &'static [iio::Specification<Buffered>] =
     &[iio::Specification::new_buffered(iio::ChannelType::Voltage)];
 
+#[pin_data]
 struct DummyState {
     dac_val: i32,
 }
@@ -47,19 +48,35 @@ impl Default for DummyState {
     }
 }
 
+impl DummyState {
+    fn new() -> impl PinInit<Self, Error> {
+        try_pin_init!(Self {
+            dac_val: 10
+        })
+    }
+}
+
 #[pin_data]
 struct DummyDevice {
     #[pin]
     st: Mutex<DummyState>,
 }
 
+impl DummyDevice {
+    fn new() -> Result<Pin<KBox<Self>>> {
+        KBox::pin_init(pin_init!(Self {
+            st <- new_mutex!(DummyState::default())
+        }), GFP_KERNEL)
+    }
+}
+
 #[vtable]
 impl iio::Driver for DummyDevice {
-    // type Data = DummyState;
-    type Ptr = Pin<KBox<Mutex<DummyState>>>;
+    // type Data = Pin<KBox<DummyState>>;
+    type Ptr = Pin<KBox<DummyDevice>>;
     const CHANNELS: &'static [iio::channels::Channel] = &kernel::concat_channels!(DUMMY_CHANNELS, DUMMY_BUFFERED_CHANNELS);
 
-    fn read_raw(data: Pin<&Mutex<DummyState>>, spec: &iio::Specification) -> iio::SensorData<i32> {
+    fn read_raw(data: Pin<&Self>, spec: &iio::Specification) -> iio::SensorData<i32> {
         // match spec.channel_type() {
         //     iio::ChannelType::Voltage => {
         //         let guard = data.lock();
@@ -70,7 +87,7 @@ impl iio::Driver for DummyDevice {
         todo!()
     }
 
-    fn write_raw(data: Pin<&mut Mutex<DummyState>>, spec: &iio::Specification, value: i32) -> Result {
+    fn write_raw(data: Pin<&mut Self>, spec: &iio::Specification, value: i32) -> Result {
         // match spec.channel_type() {
         //     iio::ChannelType::Voltage if spec.is_differential() => {
         //         let mut guard = data.lock();

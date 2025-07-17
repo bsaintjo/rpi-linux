@@ -1,6 +1,6 @@
 use core::{
     marker::PhantomData,
-    mem::{MaybeUninit},
+    mem::MaybeUninit, ptr::{self, NonNull},
 };
 
 use crate::{
@@ -29,7 +29,7 @@ use crate::iio::channels::{SensorData, Specification};
 #[pin_data(PinnedDrop)]
 pub struct Device<T: Driver> {
     #[pin]
-    indio_dev: Opaque<bindings::iio_dev>,
+    indio_dev: NonNull<bindings::iio_dev>,
     _priv: PhantomData<T>,
 }
 
@@ -41,43 +41,16 @@ impl<T: Driver> Device<T> {
         parent: ARef<device::Device>,
         module: &'static ThisModule,
         options: RegistrationOptions,
+        data: impl PinInit<T::Data, Error>,
     ) -> impl PinInit<Self, Error> {
         try_pin_init!(Self {
-            indio_dev <- Opaque::try_ffi_init(move |slot: *mut bindings::iio_dev| {
-                // indio_device_alloc takes a parent device and a size_of
-                // argument of private data we want to store along side the
-                // IIO device.
-                // Internally, if the sizeof is greater than zero
-                // it allocates space for the iio_dev and the private data,
-                // and ensures the alignment is suitable for DMA
-                // otherwise, it just allocates for the iio_dev
-                // This private pointer is expected to not be accessed
-                // by anyone else.
-                // To make use of ForeignOwnable, we initialize the iio_dev
-                // with no space for the private data, allocate it on our side
-                // and make the private pointer _priv point to our new data.
-                let indio_dev: *mut bindings::iio_dev = unsafe {
-                    bindings::devm_iio_device_alloc(parent.as_raw(), 0)
-                };
-                if indio_dev.is_null() {
-                    return Err(ENOMEM);
-                }
-                unsafe { *slot = *indio_dev };
-                // Safety: slot should still be ok for initialization
-                // unsafe { (*slot).priv_ = T::init()?.into_foreign().cast() };
-                unsafe { (*slot).name = options.name.as_char_ptr(); }
-                unsafe { (*slot).channels = T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec;}
-                unsafe { (*slot).num_channels = T::CHANNELS.len() as i32; }
-                unsafe { (*slot).modes = Mode::Direct as i32; }
-                unsafe { (*slot).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info; }
-                // unsafe { (*slot).dev.parent = parent.as_raw() };
-                // Ok(())
-                // TODO Check which device register to use
-                // __iio_device_register
-                // __devm_iio_device_register - Seems like most RFL recommend no devm functions
-                to_result(unsafe { bindings::__devm_iio_device_register(parent.as_raw(), slot, module.as_ptr()) })
-            }),
+            indio_dev: NonNull::new(unsafe { bindings::devm_iio_device_alloc(parent.as_raw(), 0) }).ok_or(ENOMEM)?,
             _priv: PhantomData,
+        }).pin_chain(|this| {
+            // ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_).write();
+            unsafe { ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info).write(IioVTableAdapter::<T>::build() as *const bindings::iio_info) ;}
+            unsafe { ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels).write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec) };
+            todo!()
         })
 
         // let indio_dev: *mut bindings::iio_dev = unsafe {
@@ -146,9 +119,10 @@ pub enum Mode {
 #[vtable]
 pub trait Driver: Sized {
     const CHANNELS: &'static [Channel];
+    type Data: Send + Sync;
     type Ptr: ForeignOwnable + Send + Sync;
 
-    fn init() -> Result<Self::Ptr>;
+    fn read_raw2(data: Pin<&Self::Data>);
 
     fn read_raw(
         _data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
@@ -246,7 +220,7 @@ mod type_test {
     struct MyModule {
         faux: faux::Registration,
         #[pin]
-        dev: kernel::iio::revamp::Device<Data>,
+        dev: kernel::iio::revamp::Device<DevData>,
     }
 
     impl kernel::InPlaceModule for MyModule {
@@ -267,30 +241,41 @@ mod type_test {
             };
             try_pin_init!(Self {
                 faux: faux?,
-                dev <- kernel::iio::revamp::Device::register(dev?, module, options),
+                dev <- kernel::iio::revamp::Device::register(dev?, module, options, DevData::init()),
+                // dev: todo!(),
             })
         }
     }
 
-    struct Data {
+    #[pin_data]
+    struct DevData {
         x: i32,
     }
 
-    impl kernel::iio::revamp::Driver for Data {
+    impl DevData {
+        fn init() -> impl PinInit<Self, Error> {
+            try_pin_init!(Self {
+                x: 10
+            })
+        } 
+    }
+
+    impl kernel::iio::revamp::Driver for DevData {
         const CHANNELS: &'static [super::Channel] = &[] as &'static [super::Channel];
         const USE_VTABLE_ATTR: () = ();
 
-        type Ptr = Pin<KBox<Data>>;
-
-        fn init() -> Result<Self::Ptr> {
-            KBox::pin_init(init!(Data { x: 10 }), GFP_KERNEL)
-        }
+        type Ptr = Pin<KBox<DevData>>;
+        type Data = DevData;
 
         fn read_raw(
             data: <Self::Ptr as crate::types::ForeignOwnable>::Borrowed<'_>,
             _channel: &crate::iio::Specification,
         ) -> Result<crate::iio::SensorData<i32>> {
             Ok(kernel::iio::channels::SensorData::int(data.x))
+        }
+        
+        fn read_raw2(data:Pin<&Self::Data>) {
+            todo!()
         }
     }
 }

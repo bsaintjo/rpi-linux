@@ -51,6 +51,8 @@ impl<T: Driver> Registration<T> {
         dev: &Device,
         module: &'static ThisModule,
         options: &RegistrationOptions,
+        data: T::Ptr,
+        // data: impl PinInit<T::Data, Error>
     ) -> Result<Self> {
         // let sizeof_priv = core::mem::size_of::<T>() as ffi::c_int;
         pr_info!("iio: Registering with device as parent");
@@ -156,18 +158,20 @@ pub enum Mode {
 
 #[vtable]
 pub trait Driver: Sized {
-    type Ptr: ForeignOwnable + Sync + Send;
+    // type Data: Send + Sync;
+    type Ptr: ForeignOwnable + Send + Sync;
+    // type Ptr = Pin<KBox<Self>>;
     const CHANNELS: &'static [Channel];
 
     fn read_raw(
-        _data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
+        _data: Pin<&Self>,
         _channel: &Specification,
     ) -> SensorData<i32> {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 
     fn write_raw(
-        _data: <Self::Ptr as ForeignOwnable>::BorrowedMut<'_>,
+        _data: Pin<&mut Self>,
         _channel: &Specification,
         _value: i32,
     ) -> Result {
