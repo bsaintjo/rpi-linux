@@ -11,6 +11,12 @@ impl Trigger2 {
         Ok(Trigger2 {})
     }
 
+    pub fn new2(
+        indio_dev: &DeviceRef
+    ) -> Result<Self> {
+        Ok(Trigger2 {})
+    }
+
     pub fn new_pinned<'a, T: Driver>(
         indio_dev: Pin<&'a Device<T>>
     ) -> impl PinInit<Self, Error> + use<T> {
