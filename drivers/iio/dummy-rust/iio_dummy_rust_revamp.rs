@@ -6,8 +6,8 @@
 
 use pin_init::pin_data;
 
-use kernel::{c_str, faux, try_pin_init, types::ARef};
-use kernel::{iio, prelude::*, types::ForeignOwnable};
+use kernel::{c_str, faux, iio::{channels::{self, Buffered}, ChannelType, SensorData, Specification}, try_pin_init, types::ARef};
+use kernel::{iio::revamp, prelude::*, types::ForeignOwnable};
 
 module! {
     type: MyModule,
@@ -21,13 +21,13 @@ module! {
 struct MyModule {
     faux: faux::Registration,
     #[pin]
-    dev: kernel::iio::revamp::Device<DevData>,
+    dev: revamp::Device<DevData>,
 }
 
 impl kernel::InPlaceModule for MyModule {
     fn init(
-        module: &'static kernel::ThisModule,
-    ) -> impl pin_init::PinInit<Self, kernel::error::Error> {
+        module: &'static ThisModule,
+    ) -> impl pin_init::PinInit<Self, Error> {
         let faux = faux::Registration::new(c_str!("test"), None);
         let dev = {
             match faux {
@@ -35,13 +35,13 @@ impl kernel::InPlaceModule for MyModule {
                 Err(e) => Err(e),
             }
         };
-        let options = iio::revamp::RegistrationOptions {
+        let options = revamp::RegistrationOptions {
             name: c_str!("test2"),
-            mode: iio::revamp::Mode::Direct,
+            mode: revamp::Mode::Direct,
         };
         try_pin_init!(Self {
             faux: faux?,
-            dev <- iio::revamp::Device::register(dev?, module, options, DevData::init()),
+            dev <- revamp::Device::register(dev?, module, options, DevData::init()),
         })
     }
 }
@@ -57,16 +57,16 @@ impl DevData {
     }
 }
 
-const DUMMY_CHANNELS: &'static [iio::Specification] =
-    &[iio::Specification::new(iio::ChannelType::Voltage)
+const DUMMY_CHANNELS: &'static [Specification] =
+    &[Specification::new(ChannelType::Voltage)
         .as_output()
-        .info_mask_separate(iio::channels::RAW)];
+        .info_mask_separate(channels::RAW)];
 
-const DUMMY_BUFFERED_CHANNELS: &'static [iio::Specification<iio::channels::Buffered>] =
-    &[iio::Specification::new_buffered(iio::ChannelType::Voltage)];
+const DUMMY_BUFFERED_CHANNELS: &'static [Specification<Buffered>] =
+    &[Specification::new_buffered(ChannelType::Voltage)];
 
-impl iio::revamp::Driver for DevData {
-    const CHANNELS: &'static [iio::channels::Channel] =
+impl revamp::Driver for DevData {
+    const CHANNELS: &'static [channels::Channel] =
         &kernel::concat_channels!(DUMMY_CHANNELS, DUMMY_BUFFERED_CHANNELS);
     const USE_VTABLE_ATTR: () = ();
 
@@ -75,9 +75,9 @@ impl iio::revamp::Driver for DevData {
 
     fn read_raw(
         data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
-        _channel: &iio::Specification,
-    ) -> Result<iio::SensorData<i32>> {
-        Ok(iio::channels::SensorData::int(data.x))
+        _channel: &Specification,
+    ) -> Result<SensorData<i32>> {
+        Ok(SensorData::int(data.x))
     }
 
     fn read_raw2(data: Pin<&Self::Data>) {

@@ -15,7 +15,7 @@ use crate::{
 // mod buffer;
 pub mod channels;
 pub mod revamp;
-// pub mod trigger;
+pub mod trigger;
 
 pub use channels::{ChannelType, SensorData, SensorValue, Specification};
 

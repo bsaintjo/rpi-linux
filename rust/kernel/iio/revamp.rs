@@ -7,7 +7,7 @@ use core::{
 use crate::{
     device,
     error::VTABLE_DEFAULT_ERROR,
-    iio::channels::{Channel, Sensor, Simple},
+    iio::{channels::{Channel, Sensor, Simple}, trigger::Trigger2},
     prelude::*,
     str::CStr,
     types::{ARef, ForeignOwnable},
@@ -37,7 +37,58 @@ pub struct Device<T: Driver> {
 unsafe impl<T: Send + Sync + Driver> Send for Device<T> {}
 unsafe impl<T: Send + Sync + Driver> Sync for Device<T> {}
 
+pub struct DeviceRef(NonNull<bindings::iio_dev>);
+
+impl DeviceRef {
+    pub(crate) fn inner(&self) -> NonNull<bindings::iio_dev> {
+        self.0
+    }
+}
+
 impl<T: Driver> Device<T> {
+    pub(crate) fn dev_ref(self: Pin<&mut Self>) -> DeviceRef {
+        DeviceRef(self.indio_dev)
+    }
+
+    // Useful when state needs to be initialized based on the iio device
+    // Such as with triggers
+    fn register_with<F, P>(
+        parent: ARef<device::Device>,
+        module: &'static ThisModule,
+        options: RegistrationOptions,
+        with_device: F,
+    ) -> impl PinInit<Self, Error> + use<T, F, P> where
+        F: FnOnce(DeviceRef) -> P,
+        P: PinInit<T::Data, Error>
+    {
+        try_pin_init!(Self {
+            indio_dev: NonNull::new(unsafe { bindings::devm_iio_device_alloc(parent.as_raw(), 0) })
+                .ok_or(ENOMEM)?,
+            _priv: PhantomData,
+        })
+        .pin_chain(|mut this| {
+            let dev_ref = this.as_mut().dev_ref();
+            // let foo = KBox::pin_init(with_dev(this.into_ref()), GFP_KERNEL);
+            let foo = KBox::pin_init(with_device(dev_ref), GFP_KERNEL)?;
+            Ok(())
+        })
+        .pin_chain(|this: Pin<&mut Device<T>>| {
+            // ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_).write();
+            // {
+            //     let works = with_dev(understand);
+            // }
+            unsafe {
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
+                    .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
+                    .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
+                    .write(T::CHANNELS.len() as i32);
+            };
+            Ok(())
+        })
+    }
+
     pub fn register(
         parent: ARef<device::Device>,
         module: &'static ThisModule,
@@ -225,17 +276,19 @@ mod type_test {
     use kernel::prelude::*;
     use kernel::{c_str, faux, try_pin_init, types::ARef};
 
+    use crate::{iio::{self, revamp::{self, Device, DeviceRef, Driver}, trigger::Trigger2, SensorData, Specification}, types::ForeignOwnable};
+
     #[pin_data]
     struct MyModule {
         faux: faux::Registration,
         #[pin]
-        dev: kernel::iio::revamp::Device<DevData>,
+        dev: revamp::Device<DevData>,
     }
 
     impl kernel::InPlaceModule for MyModule {
         fn init(
-            module: &'static crate::ThisModule,
-        ) -> impl pin_init::PinInit<Self, crate::error::Error> {
+            module: &'static ThisModule,
+        ) -> impl PinInit<Self, Error> {
             // let dev = ARef::from(faux.as_ref());
             let faux = faux::Registration::new(c_str!("test"), None);
             let dev = {
@@ -250,7 +303,12 @@ mod type_test {
             };
             try_pin_init!(Self {
                 faux: faux?,
-                dev <- kernel::iio::revamp::Device::register(dev?, module, options, DevData::init()),
+                // dev <- revamp::Device::register_with(dev?, module, options, |dev| DevData::init(dev)),
+                dev <- revamp::Device::register_with(dev?, module, options, |dev| DevData::init3(dev)),
+                // dev <- revamp::Device::register_with(dev?, module, options, |dev| {
+                //     let t = dev.with_trigger();
+                //     try_pin_init!(DevData { x: 10, trigger <- t})
+                // }),
                 // dev: todo!(),
             })
         }
@@ -259,15 +317,42 @@ mod type_test {
     #[pin_data]
     struct DevData {
         x: i32,
+        #[pin]
+        trigger: Trigger2,
     }
 
     impl DevData {
-        fn init() -> impl PinInit<Self, Error> {
-            try_pin_init!(Self { x: 10 })
+        fn init3(indio_dev: DeviceRef) -> impl PinInit<Self, Error>{
+            try_pin_init!(Self {
+                x: 10,
+                trigger <- Trigger2::new_dev(&indio_dev)
+            })
+        }
+        
+        fn init<T: Driver>(indio_dev: Pin<&Device<T>>) -> Result<Pin<KBox<Self>>> {
+            Box::try_pin_init(try_pin_init!(Self {
+                x: 10,
+                trigger <- Trigger2::new_pinned(indio_dev)
+                // trigger: todo!()
+            }), GFP_KERNEL)
+        }
+
+        // Potential footgun here:
+        // if you directly try to directly initialize with trigger <- Trigger2::new(indio_dev)
+        // The compiler tries to infer that Trigger2::new captures the lifetime of 'a from indio_dev
+        // indio_dev Pin<&'a Device<T>>
+        fn init2<T: Driver>(indio_dev: Pin<&Device<T>>) -> impl PinInit<Self, Error> {
+            let t = Trigger2::new_pinned_ref(indio_dev.get_ref());
+            try_pin_init!(Self {
+                x: 10,
+                // trigger <- Trigger2::new_pinned(indio_dev),
+                // trigger <- Trigger2::new_pinned(indio_dev.get_ref()),
+                trigger <- t
+            })
         }
     }
 
-    impl kernel::iio::revamp::Driver for DevData {
+    impl Driver for DevData {
         const CHANNELS: &'static [super::Channel] = &[] as &'static [super::Channel];
         const USE_VTABLE_ATTR: () = ();
 
@@ -275,14 +360,39 @@ mod type_test {
         type Data = DevData;
 
         fn read_raw(
-            data: <Self::Ptr as crate::types::ForeignOwnable>::Borrowed<'_>,
-            _channel: &crate::iio::Specification,
-        ) -> Result<crate::iio::SensorData<i32>> {
-            Ok(kernel::iio::channels::SensorData::int(data.x))
+            data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
+            _channel: &Specification,
+        ) -> Result<SensorData<i32>> {
+            Ok(SensorData::int(data.x))
         }
 
         fn read_raw2(data: Pin<&Self::Data>) {
             todo!()
+        }
+    }
+
+    #[pin_data]
+    struct Foo{
+        #[pin]
+        inner: Bar
+    }
+
+    #[pin_data]
+    struct Bar {}
+
+    impl Bar {
+        fn pinned<T>(x: Pin<&T>) -> impl PinInit<Self, Error> {
+            try_pin_init!(Bar {})
+        }
+    }
+
+    impl Foo {
+        fn foo<T>(x: Pin<&T>) -> impl PinInit<Self, Error> + '_ {
+            // let inner = Bar::pinned(x);
+            try_pin_init!(Self {
+                inner <- Bar::pinned(x),
+                // inner <- inner
+            })
         }
     }
 }
