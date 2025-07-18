@@ -6,7 +6,15 @@
 
 use pin_init::pin_data;
 
-use kernel::{c_str, faux, iio::{channels::{self, Buffered}, ChannelType, SensorData, Specification}, try_pin_init, types::ARef};
+use kernel::{
+    c_str, faux,
+    iio::{
+        channels::{self, Buffered},
+        ChannelType, SensorData, Specification,
+    },
+    try_pin_init,
+    types::ARef,
+};
 use kernel::{iio::revamp, prelude::*, types::ForeignOwnable};
 
 module! {
@@ -25,9 +33,7 @@ struct MyModule {
 }
 
 impl kernel::InPlaceModule for MyModule {
-    fn init(
-        module: &'static ThisModule,
-    ) -> impl pin_init::PinInit<Self, Error> {
+    fn init(module: &'static ThisModule) -> impl pin_init::PinInit<Self, Error> {
         let faux = faux::Registration::new(c_str!("test"), None);
         let dev = {
             match faux {
@@ -57,10 +63,9 @@ impl DevData {
     }
 }
 
-const DUMMY_CHANNELS: &'static [Specification] =
-    &[Specification::new(ChannelType::Voltage)
-        .as_output()
-        .info_mask_separate(channels::RAW)];
+const DUMMY_CHANNELS: &'static [Specification] = &[Specification::new(ChannelType::Voltage)
+    .as_output()
+    .info_mask_separate(channels::RAW)];
 
 const DUMMY_BUFFERED_CHANNELS: &'static [Specification<Buffered>] =
     &[Specification::new_buffered(ChannelType::Voltage)];

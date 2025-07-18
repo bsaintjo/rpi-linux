@@ -7,7 +7,7 @@ use core::{
 use crate::{
     device,
     error::VTABLE_DEFAULT_ERROR,
-    iio::{channels::{Channel, Sensor, Simple}},
+    iio::channels::{Channel, Sensor, Simple},
     prelude::*,
     str::CStr,
     types::{ARef, ForeignOwnable},
@@ -57,9 +57,10 @@ impl<T: Driver> Device<T> {
         module: &'static ThisModule,
         options: RegistrationOptions,
         with_device: F,
-    ) -> impl PinInit<Self, Error> + use<T, F, P> where
+    ) -> impl PinInit<Self, Error> + use<T, F, P>
+    where
         F: FnOnce(DeviceRef) -> P,
-        P: PinInit<T::Data, Error>
+        P: PinInit<T::Data, Error>,
     {
         try_pin_init!(Self {
             indio_dev: NonNull::new(unsafe { bindings::devm_iio_device_alloc(parent.as_raw(), 0) })
@@ -162,22 +163,30 @@ impl<T: Driver> Device<T> {
     ) -> impl PinInit<Self, Error> {
         let sizeof_priv = mem::size_of::<T::Data>();
         try_pin_init!(Self {
-            indio_dev: NonNull::new(unsafe { bindings::devm_iio_device_alloc(parent.as_raw(), sizeof_priv as i32) })
-                .ok_or(ENOMEM)?,
+            indio_dev: NonNull::new(unsafe {
+                bindings::devm_iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
+            })
+            .ok_or(ENOMEM)?,
             _priv: PhantomData,
         })
-        .pin_chain(|this| {
+        .pin_chain(|mut this| {
             // Both of these might be valid, but iio_priv is used in the subsystem so maybe that is better
             // let private: *mut T::Data = unsafe { ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_) } as *mut T::Data;
             // let ptr_uninit: *mut MaybeUninit<T::Data> = private.cast();
             // unsafe { (*ptr_uninit).write(data) };
 
             // Does this still violate Rust rules for UB and need to work in addr_of_mut somewhere
-            let private: *mut T::Data = unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T::Data;
-            unsafe { data.__pinned_init(private).inspect_err(|_| {
-                // TODO data failed, and devm_alloc_must have worked, so we need to
-                // dealloc the memory and cleanup
-            })?; }
+            let private: *mut T::Data =
+                unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T::Data;
+            // SAFETY:
+            // - *iio_device_alloc succeeded, so private is guaranteed to be a pointer to unitialized memory
+            // - The uninitialized memory is is guaranteed to fit T::Data
+            // - TODO: private is aligned for DMA, is this still correct?
+            unsafe {
+                data.__pinned_init(private).inspect_err(|_| {
+                    bindings::iio_device_free(this.indio_dev.as_mut());
+                })?;
+            }
 
             unsafe {
                 ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
@@ -185,8 +194,10 @@ impl<T: Driver> Device<T> {
             }
             unsafe {
                 ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
-                    .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec)
-            };
+                    .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
+                    .write(T::CHANNELS.len() as ffi::c_int)
+            }
             todo!()
         })
     }
@@ -199,14 +210,17 @@ impl<T: Driver> Device<T> {
     ) -> impl PinInit<Self, Error> {
         let sizeof_priv = mem::size_of::<T::Data>();
         try_pin_init!(Self {
-            indio_dev: NonNull::new(unsafe { bindings::devm_iio_device_alloc(parent.as_raw(), sizeof_priv as i32) })
-                .ok_or(ENOMEM)?,
+            indio_dev: NonNull::new(unsafe {
+                bindings::devm_iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
+            })
+            .ok_or(ENOMEM)?,
             _priv: PhantomData,
         })
         .pin_chain(|this| {
-            // SAFETY: devm_iio_device_alloc is guaranteed to allocate a memory equal to or greater than 
+            // SAFETY: devm_iio_device_alloc is guaranteed to allocate a memory equal to or greater than
             // let private: *mut T::Data = unsafe { (*this.indio_dev.as_ptr()).priv_ } as *mut T::Data;
-            let private: *mut T::Data = unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T::Data;
+            let private: *mut T::Data =
+                unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T::Data;
             let ptr_uninit: *mut MaybeUninit<T::Data> = private.cast();
             unsafe { (*ptr_uninit).write(data) };
             unsafe {
@@ -344,7 +358,14 @@ mod type_test {
     use kernel::prelude::*;
     use kernel::{c_str, faux, try_pin_init, types::ARef};
 
-    use crate::{iio::{revamp::{self, Device, DeviceRef, Driver}, trigger::Trigger2, SensorData, Specification}, types::ForeignOwnable};
+    use crate::{
+        iio::{
+            revamp::{self, Device, DeviceRef, Driver},
+            trigger::Trigger2,
+            SensorData, Specification,
+        },
+        types::ForeignOwnable,
+    };
 
     #[pin_data]
     struct MyModule {
@@ -354,9 +375,7 @@ mod type_test {
     }
 
     impl kernel::InPlaceModule for MyModule {
-        fn init(
-            module: &'static ThisModule,
-        ) -> impl PinInit<Self, Error> {
+        fn init(module: &'static ThisModule) -> impl PinInit<Self, Error> {
             // let dev = ARef::from(faux.as_ref());
             let faux = faux::Registration::new(c_str!("test"), None);
             let dev = {
@@ -391,22 +410,28 @@ mod type_test {
 
     impl DevData {
         fn init4(indio_dev: DeviceRef) -> Result<Self> {
-            Ok(Self { x: 10, trigger: Trigger2::new2(&indio_dev)? })
+            Ok(Self {
+                x: 10,
+                trigger: Trigger2::new2(&indio_dev)?,
+            })
         }
 
-        fn init3(indio_dev: DeviceRef) -> impl PinInit<Self, Error>{
+        fn init3(indio_dev: DeviceRef) -> impl PinInit<Self, Error> {
             try_pin_init!(Self {
                 x: 10,
                 trigger <- Trigger2::new_dev(&indio_dev)
             })
         }
-        
+
         fn init<T: Driver>(indio_dev: Pin<&Device<T>>) -> Result<Pin<KBox<Self>>> {
-            Box::try_pin_init(try_pin_init!(Self {
-                x: 10,
-                trigger <- Trigger2::new_pinned(indio_dev)
-                // trigger: todo!()
-            }), GFP_KERNEL)
+            Box::try_pin_init(
+                try_pin_init!(Self {
+                    x: 10,
+                    trigger <- Trigger2::new_pinned(indio_dev)
+                    // trigger: todo!()
+                }),
+                GFP_KERNEL,
+            )
         }
 
         // Potential footgun here:
@@ -444,9 +469,9 @@ mod type_test {
     }
 
     #[pin_data]
-    struct Foo{
+    struct Foo {
         #[pin]
-        inner: Bar
+        inner: Bar,
     }
 
     #[pin_data]

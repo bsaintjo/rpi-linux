@@ -1,38 +1,40 @@
-use crate::{c_str, iio::{self, revamp::{Device, DeviceRef, Driver}}, prelude::*};
+use crate::{
+    c_str,
+    iio::{
+        self,
+        revamp::{Device, DeviceRef, Driver},
+    },
+    prelude::*,
+};
 use core::marker::PhantomData;
 
 #[pin_data]
 pub struct Trigger2 {}
 
 impl Trigger2 {
-    pub fn new<T: Driver>(
-        indio_dev: Pin<&Device<T>>
-    ) -> Result<Self> {
+    pub fn new<T: Driver>(indio_dev: Pin<&Device<T>>) -> Result<Self> {
         Ok(Trigger2 {})
     }
 
-    pub fn new2(
-        indio_dev: &DeviceRef
-    ) -> Result<Self> {
+    pub fn new2(indio_dev: &DeviceRef) -> Result<Self> {
         Ok(Trigger2 {})
     }
 
     pub fn new_pinned<'a, T: Driver>(
-        indio_dev: Pin<&'a Device<T>>
+        indio_dev: Pin<&'a Device<T>>,
     ) -> impl PinInit<Self, Error> + use<T> {
         try_pin_init!(Trigger2 {})
     }
 
     pub fn new_pinned_ref<'a, T: Driver>(
-        indio_dev: &'a Device<T>
+        indio_dev: &'a Device<T>,
     ) -> impl PinInit<Self, Error> + use<T> {
         try_pin_init!(Trigger2 {})
     }
 
     pub fn new_dev(indio_dev: &DeviceRef) -> impl PinInit<Self, Error> + use<> {
         let _ = indio_dev.inner();
-        try_pin_init!(Trigger2 {
-        })
+        try_pin_init!(Trigger2 {})
     }
 }
 
