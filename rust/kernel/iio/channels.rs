@@ -2,6 +2,8 @@
 
 use core::{marker::PhantomData, mem::MaybeUninit};
 
+use bindings::iio_chan_info_enum;
+
 // TODO: Explore a more thickly wrapped Specification on top of this one
 // This way, we can use pattern matching to make the Rust side more ergonomic
 // Idea:
@@ -144,6 +146,12 @@ macro_rules! concat_channels {
 #[derive(Clone, Copy, PartialEq)]
 pub struct Mask(u32);
 
+impl Mask {
+    const fn new(chan_info: iio_chan_info_enum) -> Self {
+        Mask(1 << chan_info)
+    }
+}
+
 impl core::ops::BitOr for Mask {
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self::Output {
@@ -151,11 +159,11 @@ impl core::ops::BitOr for Mask {
     }
 }
 
-pub const RAW: Mask = Mask(bindings::iio_chan_info_enum_IIO_CHAN_INFO_RAW);
-pub const OFFSET: Mask = Mask(bindings::iio_chan_info_enum_IIO_CHAN_INFO_OFFSET);
-pub const PROCESSED: Mask = Mask(bindings::iio_chan_info_enum_IIO_CHAN_INFO_PROCESSED);
-pub const CALIBSCALE: Mask = Mask(bindings::iio_chan_info_enum_IIO_CHAN_INFO_CALIBSCALE);
-pub const INT_TIME: Mask = Mask(bindings::iio_chan_info_enum_IIO_CHAN_INFO_INT_TIME);
+pub const RAW: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_RAW);
+pub const OFFSET: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_OFFSET);
+pub const PROCESSED: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_PROCESSED);
+pub const CALIBSCALE: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_CALIBSCALE);
+pub const INT_TIME: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_INT_TIME);
 
 pub struct SensorData<T> {
     value: T,
