@@ -10,7 +10,7 @@ use crate::{
     iio::channels::{Channel, Sensor, Simple},
     prelude::*,
     str::CStr,
-    types::{ARef, ForeignOwnable},
+    types::ARef,
     ThisModule,
 };
 
@@ -262,24 +262,33 @@ pub enum Mode {
 pub trait Driver: Sized {
     const CHANNELS: &'static [Channel];
     type Data: Send + Sync;
-    type Ptr: ForeignOwnable + Send + Sync;
 
-    fn read_raw2(data: Pin<&Self::Data>);
-
-    fn read_raw(
-        _data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
-        _channel: &Specification,
-    ) -> Result<SensorData<i32>> {
+    fn read_raw(data: Pin<&Self::Data>, spec: &Specification) -> Result<SensorData<i32>> {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 
     fn write_raw(
-        _data: <Self::Ptr as ForeignOwnable>::BorrowedMut<'_>,
-        _channel: &Specification,
-        _value: i32,
+        data: Pin<&mut Self::Data>,
+        spec: &Specification,
+        sdata: SensorData<i32>,
     ) -> Result {
-        build_error!(VTABLE_DEFAULT_ERROR)
+        todo!()
     }
+
+    // fn read_raw(
+    //     _data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
+    //     _channel: &Specification,
+    // ) -> Result<SensorData<i32>> {
+    //     build_error!(VTABLE_DEFAULT_ERROR)
+    // }
+
+    // fn write_raw(
+    //     _data: <Self::Ptr as ForeignOwnable>::BorrowedMut<'_>,
+    //     _channel: &Specification,
+    //     _value: i32,
+    // ) -> Result {
+    //     build_error!(VTABLE_DEFAULT_ERROR)
+    // }
 }
 
 pub struct IioVTableAdapter<T: Driver>(PhantomData<T>);
@@ -294,12 +303,14 @@ impl<T: Driver> IioVTableAdapter<T> {
         _mask: isize,
     ) -> ffi::c_int {
         // Copied from kernel::miscdevice
-        let private = unsafe { &raw mut (*indio_dev).priv_ }.cast();
-        let device = unsafe { <T::Ptr as ForeignOwnable>::borrow(private) };
+        let private: *mut T::Data = unsafe { &raw mut (*indio_dev).priv_ }.cast();
+        let private: &T::Data = unsafe { &*private };
+        // let device = unsafe { <T::Ptr as ForeignOwnable>::borrow(private) };
+        let data = unsafe { Pin::new_unchecked(private) };
 
         // // TODO need to check the mask before casting
         let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
-        match T::read_raw(device, channel) {
+        match T::read_raw(data, channel) {
             Ok(sdata) => {
                 unsafe {
                     let val = val as *mut MaybeUninit<i32>;
@@ -320,8 +331,8 @@ impl<T: Driver> IioVTableAdapter<T> {
         _mask: isize,
     ) -> ffi::c_int {
         // Copied from kernel::miscdevice
-        let private = unsafe { &raw mut (*_indio_dev).priv_ }.cast();
-        let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
+        let private: *mut T::Data = unsafe { &raw mut (*_indio_dev).priv_ }.cast();
+        // let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
 
         // // TODO need to check the mask before casting
         // let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
@@ -358,13 +369,10 @@ mod type_test {
     use kernel::prelude::*;
     use kernel::{c_str, faux, try_pin_init, types::ARef};
 
-    use crate::{
-        iio::{
-            revamp::{self, Device, DeviceRef, Driver},
-            trigger::Trigger2,
-            SensorData, Specification,
-        },
-        types::ForeignOwnable,
+    use crate::iio::{
+        revamp::{self, Device, DeviceRef, Driver},
+        trigger::Trigger2,
+        SensorData, Specification,
     };
 
     #[pin_data]
@@ -453,17 +461,16 @@ mod type_test {
         const CHANNELS: &'static [super::Channel] = &[] as &'static [super::Channel];
         const USE_VTABLE_ATTR: () = ();
 
-        type Ptr = Pin<KBox<DevData>>;
         type Data = DevData;
 
-        fn read_raw(
-            data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
-            _channel: &Specification,
-        ) -> Result<SensorData<i32>> {
-            Ok(SensorData::int(data.x))
-        }
+        // fn read_raw(
+        //     data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
+        //     _channel: &Specification,
+        // ) -> Result<SensorData<i32>> {
+        //     Ok(SensorData::int(data.x))
+        // }
 
-        fn read_raw2(data: Pin<&Self::Data>) {
+        fn read_raw(data: Pin<&Self::Data>, spec: &Specification) -> Result<SensorData<i32>> {
             todo!()
         }
     }

@@ -10,12 +10,13 @@ use kernel::{
     c_str, faux,
     iio::{
         channels::{self, Buffered},
-        ChannelType, SensorData, Specification,
+        ChannelType, Specification,
+        SensorData,
     },
     try_pin_init,
     types::ARef,
 };
-use kernel::{iio::revamp, prelude::*, types::ForeignOwnable};
+use kernel::{iio::revamp, prelude::*};
 
 module! {
     type: MyModule,
@@ -33,7 +34,7 @@ struct MyModule {
 }
 
 impl kernel::InPlaceModule for MyModule {
-    fn init(module: &'static ThisModule) -> impl pin_init::PinInit<Self, Error> {
+    fn init(module: &'static ThisModule) -> impl PinInit<Self, Error> {
         let faux = faux::Registration::new(c_str!("test"), None);
         let dev = {
             match faux {
@@ -59,7 +60,7 @@ struct DevData {
 
 impl DevData {
     fn init() -> impl PinInit<Self, Error> {
-        try_pin_init!(Self { x: 10 })
+        try_pin_init!(Self { x: 6704 })
     }
 }
 
@@ -75,17 +76,23 @@ impl revamp::Driver for DevData {
         &kernel::concat_channels!(DUMMY_CHANNELS, DUMMY_BUFFERED_CHANNELS);
     const USE_VTABLE_ATTR: () = ();
 
-    type Ptr = Pin<KBox<DevData>>;
     type Data = DevData;
 
     fn read_raw(
-        data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
+        data: Pin<&Self::Data>,
         _channel: &Specification,
     ) -> Result<SensorData<i32>> {
         Ok(SensorData::int(data.x))
     }
 
-    fn read_raw2(data: Pin<&Self::Data>) {
-        todo!()
-    }
+    // fn read_raw(
+    //     data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
+    //     _channel: &Specification,
+    // ) -> Result<SensorData<i32>> {
+    //     Ok(SensorData::int(data.x))
+    // }
+
+    // fn read_raw2(data: Pin<&Self::Data>) {
+    //     todo!()
+    // }
 }
