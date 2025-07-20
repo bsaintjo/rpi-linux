@@ -6,7 +6,7 @@ use core::{
 
 use crate::{
     device,
-    error::VTABLE_DEFAULT_ERROR,
+    error::{to_result, VTABLE_DEFAULT_ERROR},
     iio::channels::{Channel, Sensor, Simple},
     prelude::*,
     str::CStr,
@@ -89,6 +89,44 @@ impl<T: Driver> Device<T> {
             Ok(())
         })
     }
+
+    fn register_with2<F, P>(
+        parent: ARef<device::Device>,
+        module: &'static ThisModule,
+        options: RegistrationOptions,
+        with_device: F,
+    ) -> impl PinInit<Self, Error> + use<T, F, P>
+    where
+        F: FnOnce(Pin<&Self>) -> P,
+        P: PinInit<T::Data, Error>,
+    {
+        try_pin_init!(Self {
+            indio_dev: NonNull::new(unsafe { bindings::devm_iio_device_alloc(parent.as_raw(), 0) })
+                .ok_or(ENOMEM)?,
+            _priv: PhantomData,
+        })
+        .pin_chain(|this| {
+            // let foo = KBox::pin_init(with_dev(this.into_ref()), GFP_KERNEL);
+            let foo = with_device(this.into_ref());
+            Ok(())
+        })
+        .pin_chain(|this: Pin<&mut Device<T>>| {
+            // ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_).write();
+            // {
+            //     let works = with_dev(understand);
+            // }
+            unsafe {
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
+                    .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
+                    .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
+                    .write(T::CHANNELS.len() as i32);
+            };
+            Ok(())
+        })
+    }
+
 
     pub fn register(
         parent: ARef<device::Device>,
@@ -189,16 +227,62 @@ impl<T: Driver> Device<T> {
             }
 
             unsafe {
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
+                    .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
+                    .write(T::CHANNELS.len() as ffi::c_int);
                 ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
                     .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
             }
+            Ok(())
+        })
+    }
+
+    pub fn register4(
+        parent: ARef<device::Device>,
+        module: &'static ThisModule,
+        options: RegistrationOptions,
+        data: impl PinInit<T, Error>,
+    ) -> impl PinInit<Self, Error> {
+        let sizeof_priv = mem::size_of::<T>();
+        try_pin_init!(Self {
+            indio_dev: NonNull::new(unsafe {
+                // bindings::devm_iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
+                bindings::iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
+            })
+            .ok_or(ENOMEM)?,
+            _priv: PhantomData,
+        })
+        .pin_chain(|mut this| {
+            // Both of these might be valid, but iio_priv is used in the subsystem so maybe that is better
+            // let private: *mut T::Data = unsafe { ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_) } as *mut T::Data;
+            // let ptr_uninit: *mut MaybeUninit<T::Data> = private.cast();
+            // unsafe { (*ptr_uninit).write(data) };
+
+            // Does this still violate Rust rules for UB and need to work in addr_of_mut somewhere
+            let private: *mut T =
+                unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T;
+            // SAFETY:
+            // - *iio_device_alloc succeeded, so private is guaranteed to be a pointer to unitialized memory
+            // - The uninitialized memory is is guaranteed to fit T::Data
+            // - TODO: private is aligned for DMA, is this still correct?
+            unsafe {
+                data.__pinned_init(private).inspect_err(|_| {
+                    bindings::iio_device_free(this.indio_dev.as_mut());
+                })?;
+            }
+
             unsafe {
                 ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
                     .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
                 ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
-                    .write(T::CHANNELS.len() as ffi::c_int)
+                    .write(T::CHANNELS.len() as ffi::c_int);
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
+                    .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
             }
-            todo!()
+            unsafe { to_result(bindings::__iio_device_register(this.indio_dev.as_ptr(), module.as_ptr())) }
+            // unsafe { to_result(bindings::__devm_iio_device_register(parent.as_raw(), this.indio_dev.as_ptr(), module.as_ptr())) }
+            // Ok(())
         })
     }
 
@@ -244,7 +328,9 @@ impl<T: Driver> PinnedDrop for Device<T> {
         // Set _priv to null(?)
         // and free the device
         // unsafe { bindings::iio_device_unregister(self.indio_dev.get()) };
-        todo!()
+        // todo!()
+        unsafe { bindings::iio_device_unregister(self.indio_dev.as_ptr()) };
+        unsafe { bindings::iio_device_free(self.indio_dev.as_ptr()) };
     }
 }
 
@@ -394,12 +480,14 @@ mod type_test {
             };
             let options = super::RegistrationOptions {
                 name: c_str!("test2"),
-                mode: kernel::iio::revamp::Mode::Direct,
+                mode: revamp::Mode::Direct,
             };
             try_pin_init!(Self {
                 faux: faux?,
                 // dev <- revamp::Device::register_with(dev?, module, options, |dev| DevData::init(dev)),
-                dev <- revamp::Device::register_with(dev?, module, options, |dev| DevData::init3(dev)),
+                // dev <- revamp::Device::register_with(dev?, module, options, |dev| DevData::init3(dev)),
+                dev <- revamp::Device::register4(dev?, module, options, DevData::init3(todo!())),
+                // dev <- revamp::Device::register_with2(dev?, module, options, |dev| DevData::init2(dev)),
                 // dev <- revamp::Device::register_with(dev?, module, options, |dev| {
                 //     let t = dev.with_trigger();
                 //     try_pin_init!(DevData { x: 10, trigger <- t})
@@ -446,7 +534,7 @@ mod type_test {
         // if you directly try to directly initialize with trigger <- Trigger2::new(indio_dev)
         // The compiler tries to infer that Trigger2::new captures the lifetime of 'a from indio_dev
         // indio_dev Pin<&'a Device<T>>
-        fn init2<T: Driver>(indio_dev: Pin<&Device<T>>) -> impl PinInit<Self, Error> {
+        fn init2(indio_dev: Pin<&Device<Self>>) -> impl PinInit<Self, Error> + use<'_> {
             let t = Trigger2::new_pinned_ref(indio_dev.get_ref());
             try_pin_init!(Self {
                 x: 10,
