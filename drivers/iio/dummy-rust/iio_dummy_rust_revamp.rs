@@ -10,8 +10,7 @@ use kernel::{
     c_str, faux,
     iio::{
         channels::{self, Buffered},
-        ChannelType, Specification,
-        SensorData,
+        ChannelType, SensorData, Specification,
     },
     try_pin_init,
     types::ARef,
@@ -78,10 +77,7 @@ impl revamp::Driver for DevData {
 
     type Data = DevData;
 
-    fn read_raw(
-        data: Pin<&Self::Data>,
-        _channel: &Specification,
-    ) -> Result<SensorData<i32>> {
+    fn read_raw(data: Pin<&Self::Data>, _channel: &Specification) -> Result<SensorData<i32>> {
         Ok(SensorData::int(data.x))
     }
 

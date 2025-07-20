@@ -127,7 +127,6 @@ impl<T: Driver> Device<T> {
         })
     }
 
-
     pub fn register(
         parent: ARef<device::Device>,
         module: &'static ThisModule,
@@ -260,8 +259,7 @@ impl<T: Driver> Device<T> {
             // unsafe { (*ptr_uninit).write(data) };
 
             // Does this still violate Rust rules for UB and need to work in addr_of_mut somewhere
-            let private: *mut T =
-                unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T;
+            let private: *mut T = unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T;
             // SAFETY:
             // - *iio_device_alloc succeeded, so private is guaranteed to be a pointer to unitialized memory
             // - The uninitialized memory is is guaranteed to fit T::Data
@@ -280,7 +278,12 @@ impl<T: Driver> Device<T> {
                 ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
                     .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
             }
-            unsafe { to_result(bindings::__iio_device_register(this.indio_dev.as_ptr(), module.as_ptr())) }
+            unsafe {
+                to_result(bindings::__iio_device_register(
+                    this.indio_dev.as_ptr(),
+                    module.as_ptr(),
+                ))
+            }
             // unsafe { to_result(bindings::__devm_iio_device_register(parent.as_raw(), this.indio_dev.as_ptr(), module.as_ptr())) }
             // Ok(())
         })
