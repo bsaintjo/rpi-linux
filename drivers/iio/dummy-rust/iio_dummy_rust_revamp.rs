@@ -63,18 +63,22 @@ impl DevData {
     }
 }
 
+const DUMMY_INDEX_VOLTAGE_0: i32 = 7;
+
 const DUMMY_CHANNELS: &'static [Specification] = &[
     Specification::new(ChannelType::Voltage)
-        .info_mask_separate(channels::RAW)
+        .info_mask_separate(channels::RAW.or(channels::OFFSET).or(channels::SCALE))
+        .scan_index(DUMMY_INDEX_VOLTAGE_0)
         .channel_idx(0),
     Specification::new(ChannelType::Voltage)
         .info_mask_separate(channels::RAW)
-        .as_output()
-        .channel_idx(1),
+        .channel_idx(0)
+        .as_output(),
 ];
 
 const DUMMY_BUFFERED_CHANNELS: &'static [Specification<Buffered>] =
-    &[Specification::new_buffered(ChannelType::Voltage)];
+    // &[Specification::new_buffered(ChannelType::Voltage)];
+    &[];
 
 impl revamp::Driver for DevData {
     const CHANNELS: &'static [channels::Channel] =

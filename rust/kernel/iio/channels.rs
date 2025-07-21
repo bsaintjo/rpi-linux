@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use core::{fmt, marker::PhantomData, mem::MaybeUninit};
+use core::{fmt, marker::PhantomData, mem::{self, MaybeUninit}};
 
 use bindings::iio_chan_info_enum;
 
@@ -40,6 +40,11 @@ pub struct Channel {
     inner: bindings::iio_chan_spec,
 }
 
+pub struct ChannelDefinition {
+    pub ctype: ChannelType,
+    pub output: bool,
+}
+
 impl fmt::Debug for Channel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Channel")
@@ -55,6 +60,10 @@ impl fmt::Debug for Channel {
 impl<T> Specification<T> {
     pub const fn as_channel(&'static self) -> Channel {
         Channel { inner: self.spec }
+    }
+
+    pub fn definition(&self) -> ChannelDefinition {
+        ChannelDefinition { ctype: unsafe { mem::transmute(self.spec.type_) }, output: self.spec.output() == 1 }
     }
 }
 
@@ -72,6 +81,11 @@ impl Specification<Simple> {
                 _phantom: PhantomData,
             }
         }
+    }
+
+    pub const fn scan_index(mut self, idx: i32) -> Self {
+        self.spec.scan_index = idx;
+        self
     }
 
     pub const fn channel_idx(mut self, idx: i32) -> Self {
@@ -100,37 +114,24 @@ impl Specification<Simple> {
     // The below is copying out the necessary parts from bindgen so I can set
     // output in a const context
     pub const fn as_output(self) -> Self {
-        let bit_offset = 4usize;
-        self.set_offset(bit_offset);
-        self
+        let bit_offset = 2usize;
+        self.set_offset(bit_offset)
     }
 
     pub const fn as_differential(self) -> Self {
-        let bit_offset = 2usize;
-        self.set_offset(bit_offset);
-        self
+        let bit_offset = 3usize;
+        self.set_offset(bit_offset)
     }
 
     pub const fn as_indexed(self) -> Self {
-        let bit_offset = 0usize;
+        let bit_offset = 1usize;
         self.set_offset(bit_offset)
     }
 
     pub const fn set_offset(mut self, bit_offset: usize) -> Self {
-        // let bit_offset = 2usize;
-        let bit_width = 1u8;
-        let index = if cfg!(target_endian = "big") {
-            bit_offset - 1
-        } else {
-            bit_width as usize + bit_offset
-        };
-        let bit_index = if cfg!(target_endian = "big") {
-            7 - (index % 8)
-        } else {
-            index % 8
-        };
-
-        let mask: u8 = 1 << bit_index;
+        // TODO: make bindgen output bitfield operations as const
+        let bad: [u8; 1] = unsafe { mem::transmute(self.spec._bitfield_1) };
+        let mask: u8 = bad[0] | (1 << bit_offset);
         self.spec._bitfield_1 = bindings::__BindgenBitfieldUnit::new([mask; 1]);
         self
     }
@@ -184,17 +185,16 @@ impl Mask {
     const fn new(chan_info: iio_chan_info_enum) -> Self {
         Mask(1 << chan_info)
     }
-}
 
-impl core::ops::BitOr for Mask {
-    type Output = Self;
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self(self.0 | rhs.0)
+    pub const fn or(self, other: Mask) -> Self {
+        Self(self.0 | other.0)
     }
 }
 
+
 pub const RAW: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_RAW);
 pub const OFFSET: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_OFFSET);
+pub const SCALE: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_SCALE);
 pub const PROCESSED: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_PROCESSED);
 pub const CALIBSCALE: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_CALIBSCALE);
 pub const INT_TIME: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_INT_TIME);
