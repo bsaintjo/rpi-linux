@@ -7,7 +7,7 @@ use core::{
 use crate::{
     device,
     error::{to_result, VTABLE_DEFAULT_ERROR},
-    iio::channels::{Channel, Sensor, Simple},
+    iio::{channels::{Channel, Sensor, Simple}, SensorValue},
     prelude::*,
     str::CStr,
     types::ARef,
@@ -111,10 +111,6 @@ impl<T: Driver> Device<T> {
             Ok(())
         })
         .pin_chain(|this: Pin<&mut Device<T>>| {
-            // ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_).write();
-            // {
-            //     let works = with_dev(understand);
-            // }
             unsafe {
                 ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
                     .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
@@ -134,7 +130,7 @@ impl<T: Driver> Device<T> {
         data: impl PinInit<T::Data, Error>,
     ) -> impl PinInit<Self, Error> {
         try_pin_init!(Self {
-            indio_dev: NonNull::new(unsafe { bindings::devm_iio_device_alloc(parent.as_raw(), 0) })
+            indio_dev: NonNull::new(unsafe { bindings::iio_device_alloc(parent.as_raw(), 0) })
                 .ok_or(ENOMEM)?,
             _priv: PhantomData,
         })
@@ -198,10 +194,13 @@ impl<T: Driver> Device<T> {
         options: RegistrationOptions,
         data: impl PinInit<T::Data, Error>,
     ) -> impl PinInit<Self, Error> {
+        for chan in T::CHANNELS.iter() {
+            pr_emerg!("Channel: {chan:?}");
+        }
         let sizeof_priv = mem::size_of::<T::Data>();
         try_pin_init!(Self {
             indio_dev: NonNull::new(unsafe {
-                bindings::devm_iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
+                bindings::iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
             })
             .ok_or(ENOMEM)?,
             _priv: PhantomData,
@@ -226,6 +225,9 @@ impl<T: Driver> Device<T> {
             }
 
             unsafe {
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).name)
+                    .write(options.name.as_char_ptr());
+                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).modes).write(options.modes as i32);
                 ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
                     .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
                 ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
@@ -233,7 +235,12 @@ impl<T: Driver> Device<T> {
                 ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
                     .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
             }
-            Ok(())
+            unsafe {
+                to_result(bindings::__iio_device_register(
+                    this.indio_dev.as_ptr(),
+                    module.as_ptr(),
+                ))
+            }
         })
     }
 
@@ -339,7 +346,7 @@ impl<T: Driver> PinnedDrop for Device<T> {
 
 pub struct RegistrationOptions {
     pub name: &'static CStr,
-    pub mode: Mode,
+    pub modes: Mode,
 }
 
 #[repr(u32)]
@@ -361,23 +368,8 @@ pub trait Driver: Sized {
         spec: &Specification,
         sdata: SensorData<i32>,
     ) -> Result {
-        todo!()
+        build_error!(VTABLE_DEFAULT_ERROR)
     }
-
-    // fn read_raw(
-    //     _data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
-    //     _channel: &Specification,
-    // ) -> Result<SensorData<i32>> {
-    //     build_error!(VTABLE_DEFAULT_ERROR)
-    // }
-
-    // fn write_raw(
-    //     _data: <Self::Ptr as ForeignOwnable>::BorrowedMut<'_>,
-    //     _channel: &Specification,
-    //     _value: i32,
-    // ) -> Result {
-    //     build_error!(VTABLE_DEFAULT_ERROR)
-    // }
 }
 
 pub struct IioVTableAdapter<T: Driver>(PhantomData<T>);
@@ -391,46 +383,55 @@ impl<T: Driver> IioVTableAdapter<T> {
         _val2: *mut ffi::c_int,
         _mask: isize,
     ) -> ffi::c_int {
-        // Copied from kernel::miscdevice
-        let private: *mut T::Data = unsafe { &raw mut (*indio_dev).priv_ }.cast();
+        pr_emerg!("Starting read_raw callback");
+        let private: *mut T::Data = unsafe { bindings::iio_priv(indio_dev) } as *mut T::Data;
         let private: &T::Data = unsafe { &*private };
-        // let device = unsafe { <T::Ptr as ForeignOwnable>::borrow(private) };
         let data = unsafe { Pin::new_unchecked(private) };
 
-        // // TODO need to check the mask before casting
         let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
+
         match T::read_raw(data, channel) {
             Ok(sdata) => {
+                pr_emerg!("read_raw successfully, sending data");
                 unsafe {
                     let val = val as *mut MaybeUninit<i32>;
                     (*val).write(sdata.inner());
                 }
                 SensorData::<i32>::SENSOR_VALUE as ffi::c_int
             }
-            Err(e) => e.to_errno(),
+            Err(e) => {
+                e.to_errno()
+            }
         }
-
-        // // Safety: val out-pointer maybe uninitialized
     }
     unsafe extern "C" fn write_raw(
-        _indio_dev: *mut bindings::iio_dev,
-        _iio_chan_spec: *const bindings::iio_chan_spec,
-        _val: ffi::c_int,
+        indio_dev: *mut bindings::iio_dev,
+        iio_chan_spec: *const bindings::iio_chan_spec,
+        val: ffi::c_int,
         _val2: ffi::c_int,
         _mask: isize,
     ) -> ffi::c_int {
-        // Copied from kernel::miscdevice
-        let private: *mut T::Data = unsafe { &raw mut (*_indio_dev).priv_ }.cast();
+        pr_emerg!("Starting write_raw callback");
+        // let private: *mut T::Data = unsafe { &raw mut (*_indio_dev).priv_ }.cast();
         // let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
+        let private: *mut T::Data = unsafe { bindings::iio_priv(indio_dev) } as *mut T::Data;
+        let private: &mut T::Data = unsafe { &mut *private };
+        let data = unsafe { Pin::new_unchecked(private) };
+        let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
+        let val = SensorData { value: val };
 
         // // TODO need to check the mask before casting
-        // let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
-        // match T::write_raw(device, channel, val) {
-        //     Ok(_) => SensorValue::Int as ffi::c_int,
-        //     // TODO can I return kernel errors here?
-        //     Err(_) => EINVAL.to_errno(),
-        // }
-        todo!()
+        match T::write_raw(data, channel, val) {
+            Ok(_) => {
+                pr_emerg!("Successfully write_raw");
+                SensorValue::Int as ffi::c_int
+            }
+            // TODO can I return kernel errors here?
+            Err(_) => {
+                pr_emerg!("Failed write_raw");
+                EINVAL.to_errno()
+            }
+        }
     }
 
     const VTABLE: bindings::iio_info = bindings::iio_info {
@@ -439,11 +440,12 @@ impl<T: Driver> IioVTableAdapter<T> {
         } else {
             None
         },
-        write_raw: if T::HAS_WRITE_RAW {
-            Some(Self::write_raw)
-        } else {
-            None
-        },
+        write_raw: Some(Self::write_raw),
+        // write_raw: if T::HAS_WRITE_RAW {
+        //     Some(Self::write_raw)
+        // } else {
+        //     None
+        // },
         ..unsafe { MaybeUninit::zeroed().assume_init() }
     };
 
@@ -483,13 +485,13 @@ mod type_test {
             };
             let options = super::RegistrationOptions {
                 name: c_str!("test2"),
-                mode: revamp::Mode::Direct,
+                modes: revamp::Mode::Direct,
             };
             try_pin_init!(Self {
                 faux: faux?,
                 // dev <- revamp::Device::register_with(dev?, module, options, |dev| DevData::init(dev)),
-                // dev <- revamp::Device::register_with(dev?, module, options, |dev| DevData::init3(dev)),
-                dev <- revamp::Device::register4(dev?, module, options, DevData::init3(todo!())),
+                dev <- revamp::Device::register_with(dev?, module, options, |dev| DevData::init3(dev)),
+                // dev <- revamp::Device::register4(dev?, module, options, DevData::init3(todo!())),
                 // dev <- revamp::Device::register_with2(dev?, module, options, |dev| DevData::init2(dev)),
                 // dev <- revamp::Device::register_with(dev?, module, options, |dev| {
                 //     let t = dev.with_trigger();

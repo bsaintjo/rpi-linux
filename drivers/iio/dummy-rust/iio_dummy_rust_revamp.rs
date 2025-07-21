@@ -43,11 +43,11 @@ impl kernel::InPlaceModule for MyModule {
         };
         let options = revamp::RegistrationOptions {
             name: c_str!("test2"),
-            mode: revamp::Mode::Direct,
+            modes: revamp::Mode::Direct,
         };
         try_pin_init!(Self {
             faux: faux?,
-            dev <- revamp::Device::register(dev?, module, options, DevData::init()),
+            dev <- revamp::Device::register3(dev?, module, options, DevData::init()),
         })
     }
 }
@@ -63,9 +63,15 @@ impl DevData {
     }
 }
 
-const DUMMY_CHANNELS: &'static [Specification] = &[Specification::new(ChannelType::Voltage)
-    .as_output()
-    .info_mask_separate(channels::RAW)];
+const DUMMY_CHANNELS: &'static [Specification] = &[
+    Specification::new(ChannelType::Voltage)
+        .info_mask_separate(channels::RAW)
+        .channel_idx(0),
+    Specification::new(ChannelType::Voltage)
+        .info_mask_separate(channels::RAW)
+        .as_output()
+        .channel_idx(1),
+];
 
 const DUMMY_BUFFERED_CHANNELS: &'static [Specification<Buffered>] =
     &[Specification::new_buffered(ChannelType::Voltage)];
@@ -81,14 +87,12 @@ impl revamp::Driver for DevData {
         Ok(SensorData::int(data.x))
     }
 
-    // fn read_raw(
-    //     data: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
-    //     _channel: &Specification,
-    // ) -> Result<SensorData<i32>> {
-    //     Ok(SensorData::int(data.x))
-    // }
-
-    // fn read_raw2(data: Pin<&Self::Data>) {
-    //     todo!()
-    // }
+    fn write_raw(
+        mut data: Pin<&mut Self::Data>,
+        spec: &Specification,
+        _sdata: SensorData<i32>,
+    ) -> Result {
+        data.x = data.x.wrapping_add(1);
+        Ok(())
+    }
 }

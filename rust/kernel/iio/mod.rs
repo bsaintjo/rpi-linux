@@ -133,14 +133,14 @@ impl<T: Driver> Registration<T> {
     }
 }
 
-impl<T: Driver> Drop for Registration<T> {
-    fn drop(&mut self) {
-        unsafe {
-            //             bindings::iio_device_unregister(self.indio_dev.as_ptr());
-            bindings::iio_device_free(self.indio_dev.as_ptr());
-        }
-    }
-}
+// impl<T: Driver> Drop for Registration<T> {
+//     fn drop(&mut self) {
+//         unsafe {
+//             //             bindings::iio_device_unregister(self.indio_dev.as_ptr());
+//             bindings::iio_device_free(self.indio_dev.as_ptr());
+//         }
+//     }
+// }
 
 // #[pinned_drop]
 // impl<T> PinnedDrop for Registration<T> {

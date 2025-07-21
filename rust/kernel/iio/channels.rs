@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use core::{marker::PhantomData, mem::MaybeUninit};
+use core::{fmt, marker::PhantomData, mem::MaybeUninit};
 
 use bindings::iio_chan_info_enum;
 
@@ -40,6 +40,18 @@ pub struct Channel {
     inner: bindings::iio_chan_spec,
 }
 
+impl fmt::Debug for Channel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Channel")
+            .field("channel", &self.inner.channel)
+            .field("modified", &self.inner.modified())
+            .field("indexed", &self.inner.indexed())
+            .field("output", &self.inner.output())
+            .field("differential", &self.inner.differential())
+            .finish()
+    }
+}
+
 impl<T> Specification<T> {
     pub const fn as_channel(&'static self) -> Channel {
         Channel { inner: self.spec }
@@ -62,7 +74,12 @@ impl Specification<Simple> {
         }
     }
 
-    pub fn channel_type(&self) -> ChannelType {
+    pub const fn channel_idx(mut self, idx: i32) -> Self {
+        self.spec.channel = idx;
+        self.as_indexed()
+    }
+
+    pub const fn channel_type(&self) -> ChannelType {
         unsafe { core::mem::transmute(self.spec.type_) }
     }
 
@@ -82,8 +99,25 @@ impl Specification<Simple> {
     // however, it implements it using generic functions and isn't const
     // The below is copying out the necessary parts from bindgen so I can set
     // output in a const context
-    pub const fn as_output(mut self) -> Self {
+    pub const fn as_output(self) -> Self {
+        let bit_offset = 4usize;
+        self.set_offset(bit_offset);
+        self
+    }
+
+    pub const fn as_differential(self) -> Self {
         let bit_offset = 2usize;
+        self.set_offset(bit_offset);
+        self
+    }
+
+    pub const fn as_indexed(self) -> Self {
+        let bit_offset = 0usize;
+        self.set_offset(bit_offset)
+    }
+
+    pub const fn set_offset(mut self, bit_offset: usize) -> Self {
+        // let bit_offset = 2usize;
         let bit_width = 1u8;
         let index = if cfg!(target_endian = "big") {
             bit_offset - 1
@@ -166,7 +200,7 @@ pub const CALIBSCALE: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INF
 pub const INT_TIME: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_INT_TIME);
 
 pub struct SensorData<T> {
-    value: T,
+    pub(crate) value: T,
 }
 
 impl<T> SensorData<T> {
@@ -252,4 +286,17 @@ pub enum ChannelType {
     ColorTemp = bindings::iio_chan_type_IIO_COLORTEMP,
     Chromaticity = bindings::iio_chan_type_IIO_CHROMATICITY,
     Attention = bindings::iio_chan_type_IIO_ATTENTION,
+}
+
+use macros::kunit_tests;
+#[kunit_tests(rust_iio_channels)]
+mod test {
+
+    use super::*;
+
+    #[test]
+    fn test_spec_output() {
+        let spec = Specification::new(ChannelType::Voltage).as_output();
+        assert_eq!(spec.spec.output(), 1);
+    }
 }
