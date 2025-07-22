@@ -9,9 +9,11 @@ use pin_init::pin_data;
 use kernel::{
     c_str, faux,
     iio::{
-        channels::{self, Buffered},
+        channels::{self, Buffered, ChannelDefinition},
         ChannelType, SensorData, Specification,
     },
+    new_mutex,
+    sync::Mutex,
     try_pin_init,
     types::ARef,
 };
@@ -54,12 +56,13 @@ impl kernel::InPlaceModule for MyModule {
 
 #[pin_data]
 struct DevData {
-    x: i32,
+    #[pin]
+    x: Mutex<i32>,
 }
 
 impl DevData {
     fn init() -> impl PinInit<Self, Error> {
-        try_pin_init!(Self { x: 6704 })
+        try_pin_init!(Self { x <- new_mutex!(6704) })
     }
 }
 
@@ -87,16 +90,28 @@ impl revamp::Driver for DevData {
 
     type Data = DevData;
 
-    fn read_raw(data: Pin<&Self::Data>, _channel: &Specification) -> Result<SensorData<i32>> {
-        Ok(SensorData::int(data.x))
+    fn read_raw(data: Pin<&Self::Data>, channel: &Specification) -> Result<SensorData<i32>> {
+        match channel.definition() {
+            ChannelDefinition { output: false, .. } => {
+                let guard = data.x.lock();
+                Ok(SensorData::int(*guard))
+            }
+            _ => Err(EINVAL),
+        }
     }
 
     fn write_raw(
-        mut data: Pin<&mut Self::Data>,
-        spec: &Specification,
+        data: Pin<&mut Self::Data>,
+        channel: &Specification,
         _sdata: SensorData<i32>,
     ) -> Result {
-        data.x = data.x.wrapping_add(1);
-        Ok(())
+        match channel.definition() {
+            ChannelDefinition { output: true, .. } => {
+                let mut guard = data.x.lock();
+                *guard += 1;
+                Ok(())
+            }
+            _ => Err(EINVAL),
+        }
     }
 }

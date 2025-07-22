@@ -7,7 +7,10 @@ use core::{
 use crate::{
     device,
     error::{to_result, VTABLE_DEFAULT_ERROR},
-    iio::{channels::{Channel, Sensor, Simple}, SensorValue},
+    iio::{
+        channels::{Channel, Sensor, Simple},
+        SensorValue,
+    },
     prelude::*,
     str::CStr,
     types::ARef,
@@ -399,9 +402,7 @@ impl<T: Driver> IioVTableAdapter<T> {
                 }
                 SensorData::<i32>::SENSOR_VALUE as ffi::c_int
             }
-            Err(e) => {
-                e.to_errno()
-            }
+            Err(e) => e.to_errno(),
         }
     }
     unsafe extern "C" fn write_raw(
@@ -420,6 +421,8 @@ impl<T: Driver> IioVTableAdapter<T> {
         let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
         let val = SensorData { value: val };
 
+        pr_emerg!("val: {val:?}");
+
         // // TODO need to check the mask before casting
         match T::write_raw(data, channel, val) {
             Ok(_) => {
@@ -435,11 +438,12 @@ impl<T: Driver> IioVTableAdapter<T> {
     }
 
     const VTABLE: bindings::iio_info = bindings::iio_info {
-        read_raw: if T::HAS_READ_RAW {
-            Some(Self::read_raw)
-        } else {
-            None
-        },
+        read_raw: Some(Self::read_raw),
+        // read_raw: if T::HAS_READ_RAW {
+        //     Some(Self::read_raw)
+        // } else {
+        //     None
+        // },
         write_raw: Some(Self::write_raw),
         // write_raw: if T::HAS_WRITE_RAW {
         //     Some(Self::write_raw)

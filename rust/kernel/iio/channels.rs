@@ -1,6 +1,10 @@
 #![allow(dead_code)]
 
-use core::{fmt, marker::PhantomData, mem::{self, MaybeUninit}};
+use core::{
+    fmt,
+    marker::PhantomData,
+    mem::{self, MaybeUninit},
+};
 
 use bindings::iio_chan_info_enum;
 
@@ -63,7 +67,10 @@ impl<T> Specification<T> {
     }
 
     pub fn definition(&self) -> ChannelDefinition {
-        ChannelDefinition { ctype: unsafe { mem::transmute(self.spec.type_) }, output: self.spec.output() == 1 }
+        ChannelDefinition {
+            ctype: unsafe { mem::transmute(self.spec.type_) },
+            output: self.spec.output() == 1,
+        }
     }
 }
 
@@ -191,7 +198,6 @@ impl Mask {
     }
 }
 
-
 pub const RAW: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_RAW);
 pub const OFFSET: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_OFFSET);
 pub const SCALE: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_SCALE);
@@ -201,6 +207,14 @@ pub const INT_TIME: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_
 
 pub struct SensorData<T> {
     pub(crate) value: T,
+}
+
+impl<T: fmt::Debug> fmt::Debug for SensorData<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SensorData")
+            .field("value", &self.value)
+            .finish()
+    }
 }
 
 impl<T> SensorData<T> {
