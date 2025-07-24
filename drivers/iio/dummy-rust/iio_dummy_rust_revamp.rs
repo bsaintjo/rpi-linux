@@ -49,7 +49,7 @@ impl kernel::InPlaceModule for MyModule {
         };
         try_pin_init!(Self {
             faux: faux?,
-            dev <- revamp::Device::register3(dev?, module, options, DevData::init()),
+            dev <- revamp::Device::register(dev?, module, options, DevData::init()),
         })
     }
 }

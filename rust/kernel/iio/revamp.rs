@@ -1,7 +1,7 @@
 use core::{
     marker::PhantomData,
     mem::{self, MaybeUninit},
-    ptr::{self, NonNull},
+    ptr::{self, addr_of_mut, NonNull},
 };
 
 use crate::{
@@ -18,16 +18,6 @@ use crate::{
 };
 
 use crate::iio::channels::{SensorData, Specification};
-
-// const IIO_DMA_MINALIGN: usize = {
-//     const ARCH_ALIGN: usize = bindings::ARCH_DMA_MINALIGN as usize;
-//     const SIZE: usize = core::mem::size_of::<ffi::c_long>() as usize;
-//     if ARCH_ALIGN > SIZE {
-//         ARCH_ALIGN
-//     } else {
-//         SIZE
-//     }
-// };
 
 #[repr(transparent)]
 #[pin_data(PinnedDrop)]
@@ -65,133 +55,50 @@ impl<T: Driver> Device<T> {
         F: FnOnce(DeviceRef) -> P,
         P: PinInit<T::Data, Error>,
     {
+        let sizeof_priv = mem::size_of::<T::Data>();
         try_pin_init!(Self {
-            indio_dev: NonNull::new(unsafe { bindings::devm_iio_device_alloc(parent.as_raw(), 0) })
-                .ok_or(ENOMEM)?,
+            indio_dev: NonNull::new(unsafe {
+                bindings::iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
+            })
+            .ok_or(ENOMEM)?,
             _priv: PhantomData,
         })
         .pin_chain(|mut this| {
             let dev_ref = this.as_mut().dev_ref();
-            // let foo = KBox::pin_init(with_dev(this.into_ref()), GFP_KERNEL);
-            let foo = KBox::pin_init(with_device(dev_ref), GFP_KERNEL)?;
-            Ok(())
-        })
-        .pin_chain(|this: Pin<&mut Device<T>>| {
-            // ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_).write();
-            // {
-            //     let works = with_dev(understand);
-            // }
-            unsafe {
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
-                    .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
-                    .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
-                    .write(T::CHANNELS.len() as i32);
-            };
-            Ok(())
-        })
-    }
+            let data = with_device(dev_ref);
+            let private: *mut T::Data =
+                unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T::Data;
 
-    fn register_with2<F, P>(
-        parent: ARef<device::Device>,
-        module: &'static ThisModule,
-        options: RegistrationOptions,
-        with_device: F,
-    ) -> impl PinInit<Self, Error> + use<T, F, P>
-    where
-        F: FnOnce(Pin<&Self>) -> P,
-        P: PinInit<T::Data, Error>,
-    {
-        try_pin_init!(Self {
-            indio_dev: NonNull::new(unsafe { bindings::devm_iio_device_alloc(parent.as_raw(), 0) })
-                .ok_or(ENOMEM)?,
-            _priv: PhantomData,
-        })
-        .pin_chain(|this| {
-            // let foo = KBox::pin_init(with_dev(this.into_ref()), GFP_KERNEL);
-            let foo = with_device(this.into_ref());
-            Ok(())
-        })
-        .pin_chain(|this: Pin<&mut Device<T>>| {
+            // SAFETY:
+            // - *iio_device_alloc succeeded, so private is guaranteed to be a pointer to unitialized memory
+            // - The uninitialized memory is is guaranteed to fit T::Data
+            // - TODO: private is aligned for DMA, is this still correct?
             unsafe {
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
-                    .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
+                data.__pinned_init(private).inspect_err(|_| {
+                    bindings::iio_device_free(this.indio_dev.as_mut());
+                })?;
+            }
+            unsafe {
+                addr_of_mut!((*this.indio_dev.as_ptr()).name)
+                    .write(options.name.as_char_ptr());
+                addr_of_mut!((*this.indio_dev.as_ptr()).modes).write(options.modes as i32);
+                addr_of_mut!((*this.indio_dev.as_ptr()).channels)
                     .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
-                    .write(T::CHANNELS.len() as i32);
-            };
-            Ok(())
+                addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
+                    .write(T::CHANNELS.len() as ffi::c_int);
+                addr_of_mut!((*this.indio_dev.as_ptr()).info)
+                    .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
+            }
+            unsafe {
+                to_result(bindings::__iio_device_register(
+                    this.indio_dev.as_ptr(),
+                    module.as_ptr(),
+                ))
+            }
         })
     }
 
     pub fn register(
-        parent: ARef<device::Device>,
-        module: &'static ThisModule,
-        options: RegistrationOptions,
-        data: impl PinInit<T::Data, Error>,
-    ) -> impl PinInit<Self, Error> {
-        try_pin_init!(Self {
-            indio_dev: NonNull::new(unsafe { bindings::iio_device_alloc(parent.as_raw(), 0) })
-                .ok_or(ENOMEM)?,
-            _priv: PhantomData,
-        })
-        .pin_chain(|this| {
-            // ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_).write();
-            unsafe {
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
-                    .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
-            }
-            unsafe {
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
-                    .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec)
-            };
-            todo!()
-        })
-
-        // let indio_dev: *mut bindings::iio_dev = unsafe {
-        //     bindings::iio_device_alloc(parent.as_raw(), mem::size_of::<T::Data>() as i32)
-        // };
-        // let indio_dev = NonNull::new(indio_dev).ok_or(ENOMEM)?;
-        // // TODO: iio_priv gives us the pointer to the iio_dev member, so we aren't violating aliasing rules?
-        // let private: *mut T::Data = unsafe { bindings::iio_priv(indio_dev.as_ptr())}.cast();
-        // unsafe { data.__pinned_init(private) }.inspect_err(|_| {
-        //     // if iio_device_alloc was successful, then we should be ok?
-        //     todo!("Understand errors")
-        // });
-        // unsafe { ptr::addr_of_mut!((*indio_dev.as_ptr()).info).write(IioVTableAdapter::<T>::build() as *const bindings::iio_info) ;}
-        // unsafe { ptr::addr_of_mut!((*indio_dev.as_ptr()).channels).write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec) };
-        // let indio_dev: *mut Device<T> = NonNull::new(indio_dev.as_ptr().cast());
-
-        // try_pin_init!(
-        //     Self {
-        //     indio_dev <- Opaque::try_ffi_init(move |slot: *mut bindings::iio_dev| {
-        //         let sizeof_priv = core::mem::size_of::<T>() as ffi::c_int;
-        //         unsafe {
-        //             let dev = bindings::devm_iio_device_alloc(dev.as_raw(), sizeof_priv);
-        //             if dev.is_null() {
-        //                 return Err(ENOMEM);
-        //             }
-        //             *slot = *dev;
-        //         }
-        //         unsafe {
-        //             (*slot).name = options.name.as_char_ptr();
-        //             // (*slot).priv_ = T::alloc()?.into_foreign().cast();
-        //             (*slot).channels = T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec;
-        //             (*slot).num_channels = T::CHANNELS.len() as i32;
-        //             (*slot).modes = Mode::Direct as i32;
-        //             (*slot).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info;
-        //             // (*slot).dev.parent = dev.as_raw();
-        //         }
-        //         to_result(unsafe { indings::__devm_iio_device_register(dev.as_raw(), slot, module.as_ptr()) })
-        //     }),
-        //     _priv: PhantomData,
-        // })
-    }
-
-    // This registration allocates T::Data directly in line with the indio_dev
-    pub fn register3(
         parent: ARef<device::Device>,
         module: &'static ThisModule,
         options: RegistrationOptions,
@@ -246,102 +153,11 @@ impl<T: Driver> Device<T> {
             }
         })
     }
-
-    pub fn register4(
-        parent: ARef<device::Device>,
-        module: &'static ThisModule,
-        options: RegistrationOptions,
-        data: impl PinInit<T, Error>,
-    ) -> impl PinInit<Self, Error> {
-        let sizeof_priv = mem::size_of::<T>();
-        try_pin_init!(Self {
-            indio_dev: NonNull::new(unsafe {
-                // bindings::devm_iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
-                bindings::iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
-            })
-            .ok_or(ENOMEM)?,
-            _priv: PhantomData,
-        })
-        .pin_chain(|mut this| {
-            // Both of these might be valid, but iio_priv is used in the subsystem so maybe that is better
-            // let private: *mut T::Data = unsafe { ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_) } as *mut T::Data;
-            // let ptr_uninit: *mut MaybeUninit<T::Data> = private.cast();
-            // unsafe { (*ptr_uninit).write(data) };
-
-            // Does this still violate Rust rules for UB and need to work in addr_of_mut somewhere
-            let private: *mut T = unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T;
-            // SAFETY:
-            // - *iio_device_alloc succeeded, so private is guaranteed to be a pointer to unitialized memory
-            // - The uninitialized memory is is guaranteed to fit T::Data
-            // - TODO: private is aligned for DMA, is this still correct?
-            unsafe {
-                data.__pinned_init(private).inspect_err(|_| {
-                    bindings::iio_device_free(this.indio_dev.as_mut());
-                })?;
-            }
-
-            unsafe {
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
-                    .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
-                    .write(T::CHANNELS.len() as ffi::c_int);
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
-                    .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
-            }
-            unsafe {
-                to_result(bindings::__iio_device_register(
-                    this.indio_dev.as_ptr(),
-                    module.as_ptr(),
-                ))
-            }
-            // unsafe { to_result(bindings::__devm_iio_device_register(parent.as_raw(), this.indio_dev.as_ptr(), module.as_ptr())) }
-            // Ok(())
-        })
-    }
-
-    pub fn register2(
-        parent: ARef<device::Device>,
-        module: &'static ThisModule,
-        options: RegistrationOptions,
-        data: T::Data,
-    ) -> impl PinInit<Self, Error> {
-        let sizeof_priv = mem::size_of::<T::Data>();
-        try_pin_init!(Self {
-            indio_dev: NonNull::new(unsafe {
-                bindings::devm_iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
-            })
-            .ok_or(ENOMEM)?,
-            _priv: PhantomData,
-        })
-        .pin_chain(|this| {
-            // SAFETY: devm_iio_device_alloc is guaranteed to allocate a memory equal to or greater than
-            // let private: *mut T::Data = unsafe { (*this.indio_dev.as_ptr()).priv_ } as *mut T::Data;
-            let private: *mut T::Data =
-                unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T::Data;
-            let ptr_uninit: *mut MaybeUninit<T::Data> = private.cast();
-            unsafe { (*ptr_uninit).write(data) };
-            unsafe {
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
-                    .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
-            }
-            unsafe {
-                ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
-                    .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec)
-            };
-            todo!()
-        })
-    }
 }
 
 #[pinned_drop]
 impl<T: Driver> PinnedDrop for Device<T> {
     fn drop(self: Pin<&mut Self>) {
-        // Need to free the device, but before that,
-        // we need to grab out Self::Ptr from _priv and deallocate it on our side
-        // Set _priv to null(?)
-        // and free the device
-        // unsafe { bindings::iio_device_unregister(self.indio_dev.get()) };
-        // todo!()
         unsafe { bindings::iio_device_unregister(self.indio_dev.as_ptr()) };
         unsafe { bindings::iio_device_free(self.indio_dev.as_ptr()) };
     }
@@ -413,8 +229,6 @@ impl<T: Driver> IioVTableAdapter<T> {
         _mask: isize,
     ) -> ffi::c_int {
         pr_emerg!("Starting write_raw callback");
-        // let private: *mut T::Data = unsafe { &raw mut (*_indio_dev).priv_ }.cast();
-        // let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
         let private: *mut T::Data = unsafe { bindings::iio_priv(indio_dev) } as *mut T::Data;
         let private: &mut T::Data = unsafe { &mut *private };
         let data = unsafe { Pin::new_unchecked(private) };
