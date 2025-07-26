@@ -1,5 +1,11 @@
 #![allow(dead_code)]
-
+/// Channel
+///
+/// Invariants:
+/// Differential channels must be indexed
+/// Duplicate scan index
+/// Cannot use labels and extended_name at the same time
+/// Multi-long available scan masks not fully supported
 use core::{
     fmt,
     marker::PhantomData,
@@ -164,8 +170,8 @@ impl Specification<Buffered> {
 #[macro_export]
 macro_rules! concat_channels {
     ($a:expr, $b:expr) => {{
-        let _a: &'static [$crate::iio::Specification<$crate::iio::channels::Simple>] = $a;
-        let _b: &'static [$crate::iio::Specification<$crate::iio::channels::Buffered>] = $b;
+        let _a: &'static [$crate::iio::channels::Specification<$crate::iio::channels::Simple>] = $a;
+        let _b: &'static [$crate::iio::channels::Specification<$crate::iio::channels::Buffered>] = $b;
         const LEN_A: usize = $a.len();
         const LEN_B: usize = $b.len();
         const LEN: usize = LEN_A + LEN_B;
@@ -205,36 +211,21 @@ pub const PROCESSED: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO
 pub const CALIBSCALE: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_CALIBSCALE);
 pub const INT_TIME: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_INT_TIME);
 
-pub struct SensorData<T> {
-    pub(crate) value: T,
+#[derive(Debug)]
+pub enum SensorData {
+    Int(i32)
 }
 
-impl<T: fmt::Debug> fmt::Debug for SensorData<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SensorData")
-            .field("value", &self.value)
-            .finish()
+impl SensorData {
+    pub fn int(x: i32) -> Self {
+        SensorData::Int(x)
     }
-}
 
-impl<T> SensorData<T> {
-    pub(crate) fn inner(self) -> T {
-        self.value
+    pub(crate) fn sensor_value(&self) -> SensorValue {
+        match self {
+            SensorData::Int(_) => SensorValue::Int,
+        }
     }
-}
-
-impl SensorData<i32> {
-    pub fn int(value: i32) -> Self {
-        Self { value }
-    }
-}
-
-pub trait Sensor {
-    const SENSOR_VALUE: SensorValue;
-}
-
-impl Sensor for SensorData<i32> {
-    const SENSOR_VALUE: SensorValue = SensorValue::Int;
 }
 
 /// Represents the return type

@@ -86,7 +86,7 @@ impl iio::Driver for DummyDevice {
     const CHANNELS: &'static [iio::channels::Channel] =
         &kernel::concat_channels!(DUMMY_CHANNELS, DUMMY_BUFFERED_CHANNELS);
 
-    fn read_raw(data: Pin<&Self>, spec: &iio::Specification) -> iio::SensorData<i32> {
+    fn read_raw(data: Pin<&Self>, spec: &iio::Specification) -> iio::SensorData {
         // match spec.channel_type() {
         //     iio::ChannelType::Voltage => {
         //         let guard = data.lock();

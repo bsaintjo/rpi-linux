@@ -8,10 +8,7 @@ use pin_init::pin_data;
 
 use kernel::{
     c_str, faux,
-    iio::{
-        channels::{self, Buffered, ChannelDefinition},
-        ChannelType, SensorData, Specification,
-    },
+    iio::channels::{self, Buffered, ChannelDefinition, ChannelType, SensorData, Specification},
     new_mutex,
     sync::Mutex,
     try_pin_init,
@@ -90,7 +87,7 @@ impl revamp::Driver for DevData {
 
     type Data = DevData;
 
-    fn read_raw(data: Pin<&Self::Data>, channel: &Specification) -> Result<SensorData<i32>> {
+    fn read_raw(data: Pin<&Self::Data>, channel: &Specification) -> Result<SensorData> {
         match channel.definition() {
             ChannelDefinition { output: false, .. } => {
                 let guard = data.x.lock();
@@ -103,7 +100,7 @@ impl revamp::Driver for DevData {
     fn write_raw(
         data: Pin<&mut Self::Data>,
         channel: &Specification,
-        _sdata: SensorData<i32>,
+        _sdata: SensorData,
     ) -> Result {
         match channel.definition() {
             ChannelDefinition { output: true, .. } => {

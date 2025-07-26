@@ -38,62 +38,62 @@ impl Trigger2 {
     }
 }
 
-struct Trigger;
+// struct Trigger;
 
-impl Trigger {
-    fn new<I>(
-        _indio_dev: iio::Registration<I>,
-        _module: &'static ThisModule,
-        _name: &'static CStr,
-        _idx: i32,
-    ) -> Result<Self>
-    where
-        I: iio::Driver,
-    {
-        let trig = unsafe {
-            bindings::__devm_iio_trigger_alloc(
-                _indio_dev.device().as_raw(),
-                _module.0,
-                c_str!("trig-%s-%d").as_char_ptr(),
-                _name.as_char_ptr(),
-                _idx,
-            )
-        };
-        if trig.is_null() {
-            return Err(EINVAL);
-        }
-        // unsafe {
-        //     (*trig).ops = TriggerVtable::<Self>::build() as *const bindings::iio_trigger_ops;
-        // }
-        // let ret = unsafe { bindings::devm_iio_trigger_register(indio_dev.device().as_raw(), trig) };
-        // if ret < 0 {
-        //     // TODO "Do I need to free on failure or the devm cleansup?"
-        //     todo!()
-        // }
-        todo!()
-    }
-}
+// impl Trigger {
+//     fn new<I>(
+//         _indio_dev: iio::Device<I>,
+//         _module: &'static ThisModule,
+//         _name: &'static CStr,
+//         _idx: i32,
+//     ) -> Result<Self>
+//     where
+//         I: iio::Driver,
+//     {
+//         let trig = unsafe {
+//             bindings::__devm_iio_trigger_alloc(
+//                 _indio_dev.device().as_raw(),
+//                 _module.0,
+//                 c_str!("trig-%s-%d").as_char_ptr(),
+//                 _name.as_char_ptr(),
+//                 _idx,
+//             )
+//         };
+//         if trig.is_null() {
+//             return Err(EINVAL);
+//         }
+//         // unsafe {
+//         //     (*trig).ops = TriggerVtable::<Self>::build() as *const bindings::iio_trigger_ops;
+//         // }
+//         // let ret = unsafe { bindings::devm_iio_trigger_register(indio_dev.device().as_raw(), trig) };
+//         // if ret < 0 {
+//         //     // TODO "Do I need to free on failure or the devm cleansup?"
+//         //     todo!()
+//         // }
+//         todo!()
+//     }
+// }
 
-impl Drop for Trigger {
-    fn drop(&mut self) {
-        todo!()
-    }
-}
+// impl Drop for Trigger {
+//     fn drop(&mut self) {
+//         todo!()
+//     }
+// }
 
-#[vtable]
-impl TriggerOps for Trigger {
-    fn set_trigger_state() {
-        todo!()
-    }
+// #[vtable]
+// impl TriggerOps for Trigger {
+//     fn set_trigger_state() {
+//         todo!()
+//     }
 
-    fn reenable() {
-        todo!()
-    }
+//     fn reenable() {
+//         todo!()
+//     }
 
-    fn validate_device() {
-        todo!()
-    }
-}
+//     fn validate_device() {
+//         todo!()
+//     }
+// }
 
 #[vtable]
 trait TriggerOps {

@@ -3,154 +3,177 @@
 #![allow(missing_docs)]
 use core::{
     marker::PhantomData,
-    mem::MaybeUninit,
-    ptr::{self, NonNull},
+    mem::{self, MaybeUninit},
+    ptr::{self, addr_of_mut, NonNull},
 };
 
 use crate::{
-    device::Device, error::VTABLE_DEFAULT_ERROR, iio::channels::Channel, prelude::*, str::CStr,
-    types::ForeignOwnable, ThisModule,
+    device,
+    error::{to_result, VTABLE_DEFAULT_ERROR},
+    iio::channels::{Channel, SensorValue, Simple},
+    prelude::*,
+    str::CStr,
+    types::ARef,
+    ThisModule,
 };
 
-// mod buffer;
 pub mod channels;
 pub mod revamp;
 pub mod trigger;
+// pub mod buffer;
 
-pub use channels::{ChannelType, SensorData, SensorValue, Specification};
+use crate::iio::channels::{SensorData, Specification};
 
-pub struct RegistrationOptions {
-    pub name: &'static CStr,
-    pub mode: Mode,
-}
-
-// TODO: Instead of iio_priv, store private data on the Rust side?
 #[repr(transparent)]
-pub struct Registration<T: Driver> {
+#[pin_data(PinnedDrop)]
+pub struct Device<T: Driver> {
+    #[pin]
     indio_dev: NonNull<bindings::iio_dev>,
     _priv: PhantomData<T>,
 }
 
-// TODO Safety
-unsafe impl<T: Send + Sync + Driver> Send for Registration<T> {}
-unsafe impl<T: Send + Sync + Driver> Sync for Registration<T> {}
+unsafe impl<T: Send + Sync + Driver> Send for Device<T> {}
+unsafe impl<T: Send + Sync + Driver> Sync for Device<T> {}
 
-// TODO Sealed for now, figure out if necessary
+pub struct DeviceRef(NonNull<bindings::iio_dev>);
 
-#[repr(transparent)]
-struct ChanSpec(bindings::iio_chan_spec);
-
-unsafe impl Send for ChanSpec {}
-unsafe impl Sync for ChanSpec {}
-
-static FAKECHANNELS: &'static [ChanSpec] = &[];
-
-impl<T: Driver> Registration<T> {
-    pub fn new(
-        dev: &Device,
-        module: &'static ThisModule,
-        options: &RegistrationOptions,
-        data: T::Ptr,
-        // data: impl PinInit<T::Data, Error>
-    ) -> Result<Self> {
-        // let sizeof_priv = core::mem::size_of::<T>() as ffi::c_int;
-        pr_info!("iio: Registering with device as parent");
-        let sizeof_priv = 0 as ffi::c_int;
-        let indio_dev = unsafe { bindings::devm_iio_device_alloc(dev.as_raw(), sizeof_priv) };
-        if indio_dev.is_null() {
-            return Err(ENOMEM);
-        }
-
-        unsafe {
-            // Have &'static [Specification]
-            // Need a *const iio_chan_spec
-            // Specification is repr(transpent) iio_chan_spec
-            // &'static[].as_ptr() should be valid since its static
-            // (*indio_dev).name = options.name.as_char_ptr();
-            // (*indio_dev).channels = T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec;
-            // (*indio_dev).num_channels = T::CHANNELS.len() as i32;
-            // (*indio_dev).modes = Mode::Direct as i32;
-            // (*indio_dev).info = IioVTableAdapter::<T>::build() as *const bindings::iio_info;
-            ptr::addr_of_mut!((*indio_dev).name).write(options.name.as_char_ptr());
-            ptr::addr_of_mut!((*indio_dev).channels)
-                .write(FAKECHANNELS.as_ptr() as *const bindings::iio_chan_spec);
-            ptr::addr_of_mut!((*indio_dev).num_channels).write(FAKECHANNELS.len() as i32);
-            ptr::addr_of_mut!((*indio_dev).modes).write(Mode::Direct as i32);
-            ptr::addr_of_mut!((*indio_dev).info)
-                .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
-        }
-        pr_info!("Initialized indio_dev");
-
-        // TODO Here we need to do any other configuration with buffers, etc.
-        // Possibly move into RegistrationOptions
-
-        // In the ideal case, we automatically configure all the buffer/event channels
-        // If they are present in T::CHANNELS.
-
-        // TODO Need to confirm, can a device have multiple buffers and events?
-
-        // TODO We need to do all of the configuration here
-        // Some ideas are loop over T::CHANNELS
-        // for channel in T::CHANNELS { /* configuration */ }
-        // If the channel is Specification<T> where T: BufferChannel
-        // Run the corresponding configuration with
-        // <T as BufferChannel>::configure (needs to be added)
-        // However this means that we need to loop over every channel,
-        // every time a device is registered. Maybe the compiler will see
-        // that nothing is done for the Specification<Simple>?
-
-        // Other idea is iio::Driver has statically allocated
-        // associate constant array for simple arrays, and buffer arrays
-        // Then we only loop over the buffer arrays to call their
-        // configure. The only issue is that we need to eventually
-        // stitch them all back together
-        // into a single statically allocated iio_chan_spec[]
-        // Probably some macro magic can accomplish this.
-        // For the future, we'd probably also need to add a separate
-        // one for events, and maybe others depending if the C code expands
-
-        // TODO use iio_device_register instead?
-        // TODO Safety
-        // If ret is negative register has failed
-        let ret = unsafe {
-            bindings::__devm_iio_device_register(dev.as_raw(), indio_dev, module.as_ptr())
-        };
-
-        if ret < 0 {
-            unsafe { bindings::iio_device_free(indio_dev) };
-            // TODO Check error to return
-            return Err(EINVAL);
-        }
-
-        Ok(Self {
-            indio_dev: NonNull::new(indio_dev).ok_or(EINVAL)?,
-            _priv: PhantomData,
-        })
-    }
-
-    fn device(&self) -> &Device {
-        todo!()
+impl DeviceRef {
+    pub(crate) fn inner(&self) -> NonNull<bindings::iio_dev> {
+        self.0
     }
 }
 
-// impl<T: Driver> Drop for Registration<T> {
-//     fn drop(&mut self) {
-//         unsafe {
-//             //             bindings::iio_device_unregister(self.indio_dev.as_ptr());
-//             bindings::iio_device_free(self.indio_dev.as_ptr());
-//         }
-//     }
-// }
+impl<T: Driver> Device<T> {
+    pub(crate) fn dev_ref(self: Pin<&mut Self>) -> DeviceRef {
+        DeviceRef(self.indio_dev)
+    }
 
-// #[pinned_drop]
-// impl<T> PinnedDrop for Registration<T> {
-//     fn drop(self: Pin<&mut Self>) {
-//         unsafe {
-//             bindings::iio_device_unregister(self.indio_dev.as_ptr());
-//             bindings::iio_device_free(self.indio_dev.as_ptr());
-//         }
-//     }
-// }
+    // Useful when state needs to be initialized based on the iio device
+    // Such as with triggers
+    fn register_with<F, P>(
+        parent: ARef<device::Device>,
+        module: &'static ThisModule,
+        options: RegistrationOptions,
+        with_device: F,
+    ) -> impl PinInit<Self, Error> + use<T, F, P>
+    where
+        F: FnOnce(DeviceRef) -> P,
+        P: PinInit<T::Data, Error>,
+    {
+        let sizeof_priv = mem::size_of::<T::Data>();
+        try_pin_init!(Self {
+            indio_dev: NonNull::new(unsafe {
+                bindings::iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
+            })
+            .ok_or(ENOMEM)?,
+            _priv: PhantomData,
+        })
+        .pin_chain(|mut this| {
+            let dev_ref = this.as_mut().dev_ref();
+            let data = with_device(dev_ref);
+            let private: *mut T::Data =
+                unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T::Data;
+
+            // SAFETY:
+            // - *iio_device_alloc succeeded, so private is guaranteed to be a pointer to unitialized memory
+            // - The uninitialized memory is is guaranteed to fit T::Data
+            // - TODO: private is aligned for DMA, is this still correct?
+            unsafe {
+                data.__pinned_init(private).inspect_err(|_| {
+                    bindings::iio_device_free(this.indio_dev.as_mut());
+                })?;
+            }
+            unsafe {
+                addr_of_mut!((*this.indio_dev.as_ptr()).name)
+                    .write(options.name.as_char_ptr());
+                addr_of_mut!((*this.indio_dev.as_ptr()).modes).write(options.modes as i32);
+                addr_of_mut!((*this.indio_dev.as_ptr()).channels)
+                    .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
+                addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
+                    .write(T::CHANNELS.len() as ffi::c_int);
+                addr_of_mut!((*this.indio_dev.as_ptr()).info)
+                    .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
+            }
+            unsafe {
+                to_result(bindings::__iio_device_register(
+                    this.indio_dev.as_ptr(),
+                    module.as_ptr(),
+                ))
+            }
+        })
+    }
+
+    pub fn register(
+        parent: ARef<device::Device>,
+        module: &'static ThisModule,
+        options: RegistrationOptions,
+        data: impl PinInit<T::Data, Error>,
+    ) -> impl PinInit<Self, Error> {
+        for chan in T::CHANNELS.iter() {
+            pr_emerg!("Channel: {chan:?}");
+        }
+        Self::register_with(parent, module, options, |_| data)
+    //     let sizeof_priv = mem::size_of::<T::Data>();
+    //     try_pin_init!(Self {
+    //         indio_dev: NonNull::new(unsafe {
+    //             bindings::iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
+    //         })
+    //         .ok_or(ENOMEM)?,
+    //         _priv: PhantomData,
+    //     })
+    //     .pin_chain(|mut this| {
+    //         // Both of these might be valid, but iio_priv is used in the subsystem so maybe that is better
+    //         // let private: *mut T::Data = unsafe { ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_) } as *mut T::Data;
+    //         // let ptr_uninit: *mut MaybeUninit<T::Data> = private.cast();
+    //         // unsafe { (*ptr_uninit).write(data) };
+
+    //         // Does this still violate Rust rules for UB and need to work in addr_of_mut somewhere
+    //         let private: *mut T::Data =
+    //             unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T::Data;
+    //         // SAFETY:
+    //         // - *iio_device_alloc succeeded, so private is guaranteed to be a pointer to unitialized memory
+    //         // - The uninitialized memory is is guaranteed to fit T::Data
+    //         // - TODO: private is aligned for DMA, is this still correct?
+    //         unsafe {
+    //             data.__pinned_init(private).inspect_err(|_| {
+    //                 bindings::iio_device_free(this.indio_dev.as_mut());
+    //             })?;
+    //         }
+
+    //         unsafe {
+    //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).name)
+    //                 .write(options.name.as_char_ptr());
+    //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).modes).write(options.modes as i32);
+    //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
+    //                 .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
+    //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
+    //                 .write(T::CHANNELS.len() as ffi::c_int);
+    //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
+    //                 .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
+    //         }
+    //         unsafe {
+    //             to_result(bindings::__iio_device_register(
+    //                 this.indio_dev.as_ptr(),
+    //                 module.as_ptr(),
+    //             ))
+    //         }
+    //     })
+    // }
+    }
+}
+
+#[pinned_drop]
+impl<T: Driver> PinnedDrop for Device<T> {
+    fn drop(self: Pin<&mut Self>) {
+        unsafe { bindings::iio_device_unregister(self.indio_dev.as_ptr()) };
+        unsafe { bindings::iio_device_free(self.indio_dev.as_ptr()) };
+    }
+}
+
+pub struct RegistrationOptions {
+    pub name: &'static CStr,
+    pub modes: Mode,
+}
 
 #[repr(u32)]
 pub enum Mode {
@@ -159,16 +182,18 @@ pub enum Mode {
 
 #[vtable]
 pub trait Driver: Sized {
-    // type Data: Send + Sync;
-    type Ptr: ForeignOwnable + Send + Sync;
-    // type Ptr = Pin<KBox<Self>>;
     const CHANNELS: &'static [Channel];
+    type Data: Send + Sync;
 
-    fn read_raw(_data: Pin<&Self>, _channel: &Specification) -> SensorData<i32> {
+    fn read_raw(data: Pin<&Self::Data>, spec: &Specification) -> Result<SensorData> {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 
-    fn write_raw(_data: Pin<&mut Self>, _channel: &Specification, _value: i32) -> Result {
+    fn write_raw(
+        data: Pin<&mut Self::Data>,
+        spec: &Specification,
+        sdata: SensorData,
+    ) -> Result {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 }
@@ -177,62 +202,82 @@ pub struct IioVTableAdapter<T: Driver>(PhantomData<T>);
 
 impl<T: Driver> IioVTableAdapter<T> {
     unsafe extern "C" fn read_raw(
-        _indio_dev: *mut bindings::iio_dev,
-        _iio_chan_spec: *const bindings::iio_chan_spec,
-        _val: *mut ffi::c_int,
+        indio_dev: *mut bindings::iio_dev,
+        iio_chan_spec: *const bindings::iio_chan_spec,
+        val: *mut ffi::c_int,
         // Ignore for now
         _val2: *mut ffi::c_int,
         _mask: isize,
     ) -> ffi::c_int {
-        // // Copied from kernel::miscdevice
-        // let private = unsafe { bindings::iio_priv(_indio_dev) }.cast();
-        // // let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
-        // let device = unsafe { <T::Ptr as ForeignOwnable>::borrow(private) };
+        pr_emerg!("Starting read_raw callback");
+        let private: *mut T::Data = unsafe { bindings::iio_priv(indio_dev) } as *mut T::Data;
+        let private: &T::Data = unsafe { &*private };
+        let data = unsafe { Pin::new_unchecked(private) };
 
-        // // TODO need to check the mask before casting
-        // let channel = unsafe { &*_iio_chan_spec.cast::<Specification<Simple>>() };
-        // let ret = T::read_raw(device, channel);
+        let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
 
-        // // // TODO check if val is always not null
-        // unsafe {
-        //     *_val = ret.inner();
-        // }
-        // <ret as Sensor>::SENSOR_VALUE as ffi::c_int
-        todo!()
+        match T::read_raw(data, channel) {
+            Ok(sdata) => {
+                pr_emerg!("read_raw successfully, sending data");
+                match &sdata {
+                    SensorData::Int(inner) => unsafe {
+                        let val = val as *mut MaybeUninit<i32>;
+                        (*val).write(*inner);
+                    }
+                }
+                // unsafe {
+                //     let val = val as *mut MaybeUninit<i32>;
+                //     (*val).write(sdata.inner());
+                // }
+                // SensorData::<i32>::SENSOR_VALUE as ffi::c_int
+                sdata.sensor_value() as ffi::c_int
+            }
+            Err(e) => e.to_errno(),
+        }
     }
     unsafe extern "C" fn write_raw(
-        _indio_dev: *mut bindings::iio_dev,
-        _iio_chan_spec: *const bindings::iio_chan_spec,
-        _val: ffi::c_int,
+        indio_dev: *mut bindings::iio_dev,
+        iio_chan_spec: *const bindings::iio_chan_spec,
+        val: ffi::c_int,
         _val2: ffi::c_int,
         _mask: isize,
     ) -> ffi::c_int {
-        // Copied from kernel::miscdevice
-        // let private = unsafe { bindings::iio_priv(_indio_dev) }.cast();
-        // // let ptr = unsafe { <T::Ptr as ForeignOwnable>::from_foreign(private) };
-        // let device = unsafe { <T::Ptr as ForeignOwnable>::borrow_mut(private) };
+        pr_emerg!("Starting write_raw callback");
+        let private: *mut T::Data = unsafe { bindings::iio_priv(indio_dev) } as *mut T::Data;
+        let private: &mut T::Data = unsafe { &mut *private };
+        let data = unsafe { Pin::new_unchecked(private) };
+        let channel = unsafe { &*iio_chan_spec.cast::<Specification<Simple>>() };
+        let val = SensorData::int(val);
+
+        pr_emerg!("val: {val:?}");
 
         // // TODO need to check the mask before casting
-        // let channel = unsafe { &*_iio_chan_spec.cast::<Specification<Simple>>() };
-        // match T::write_raw(device, channel, _val) {
-        //     Ok(_) => SensorValue::Int as ffi::c_int,
-        //     // TODO can I return kernel errors here?
-        //     Err(_) => EINVAL.to_errno(),
-        // }
-        todo!()
+        match T::write_raw(data, channel, val) {
+            Ok(_) => {
+                pr_emerg!("Successfully write_raw");
+                SensorValue::Int as ffi::c_int
+            }
+            // TODO can I return kernel errors here?
+            Err(_) => {
+                pr_emerg!("Failed write_raw");
+                EINVAL.to_errno()
+            }
+        }
     }
 
     const VTABLE: bindings::iio_info = bindings::iio_info {
-        read_raw: if T::HAS_READ_RAW {
-            Some(Self::read_raw)
-        } else {
-            None
-        },
-        write_raw: if T::HAS_WRITE_RAW {
-            Some(Self::write_raw)
-        } else {
-            None
-        },
+        read_raw: Some(Self::read_raw),
+        // read_raw: if T::HAS_READ_RAW {
+        //     Some(Self::read_raw)
+        // } else {
+        //     None
+        // },
+        write_raw: Some(Self::write_raw),
+        // write_raw: if T::HAS_WRITE_RAW {
+        //     Some(Self::write_raw)
+        // } else {
+        //     None
+        // },
         ..unsafe { MaybeUninit::zeroed().assume_init() }
     };
 
