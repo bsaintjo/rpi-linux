@@ -171,7 +171,8 @@ impl Specification<Buffered> {
 macro_rules! concat_channels {
     ($a:expr, $b:expr) => {{
         let _a: &'static [$crate::iio::channels::Specification<$crate::iio::channels::Simple>] = $a;
-        let _b: &'static [$crate::iio::channels::Specification<$crate::iio::channels::Buffered>] = $b;
+        let _b: &'static [$crate::iio::channels::Specification<$crate::iio::channels::Buffered>] =
+            $b;
         const LEN_A: usize = $a.len();
         const LEN_B: usize = $b.len();
         const LEN: usize = LEN_A + LEN_B;
@@ -213,7 +214,7 @@ pub const INT_TIME: Mask = Mask::new(bindings::iio_chan_info_enum_IIO_CHAN_INFO_
 
 #[derive(Debug)]
 pub enum SensorData {
-    Int(i32)
+    Int(i32),
 }
 
 impl SensorData {

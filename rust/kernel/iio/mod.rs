@@ -83,8 +83,7 @@ impl<T: Driver> Device<T> {
                 })?;
             }
             unsafe {
-                addr_of_mut!((*this.indio_dev.as_ptr()).name)
-                    .write(options.name.as_char_ptr());
+                addr_of_mut!((*this.indio_dev.as_ptr()).name).write(options.name.as_char_ptr());
                 addr_of_mut!((*this.indio_dev.as_ptr()).modes).write(options.modes as i32);
                 addr_of_mut!((*this.indio_dev.as_ptr()).channels)
                     .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
@@ -112,52 +111,52 @@ impl<T: Driver> Device<T> {
             pr_emerg!("Channel: {chan:?}");
         }
         Self::register_with(parent, module, options, |_| data)
-    //     let sizeof_priv = mem::size_of::<T::Data>();
-    //     try_pin_init!(Self {
-    //         indio_dev: NonNull::new(unsafe {
-    //             bindings::iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
-    //         })
-    //         .ok_or(ENOMEM)?,
-    //         _priv: PhantomData,
-    //     })
-    //     .pin_chain(|mut this| {
-    //         // Both of these might be valid, but iio_priv is used in the subsystem so maybe that is better
-    //         // let private: *mut T::Data = unsafe { ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_) } as *mut T::Data;
-    //         // let ptr_uninit: *mut MaybeUninit<T::Data> = private.cast();
-    //         // unsafe { (*ptr_uninit).write(data) };
+        //     let sizeof_priv = mem::size_of::<T::Data>();
+        //     try_pin_init!(Self {
+        //         indio_dev: NonNull::new(unsafe {
+        //             bindings::iio_device_alloc(parent.as_raw(), sizeof_priv as i32)
+        //         })
+        //         .ok_or(ENOMEM)?,
+        //         _priv: PhantomData,
+        //     })
+        //     .pin_chain(|mut this| {
+        //         // Both of these might be valid, but iio_priv is used in the subsystem so maybe that is better
+        //         // let private: *mut T::Data = unsafe { ptr::addr_of_mut!((*this.indio_dev.as_ptr()).priv_) } as *mut T::Data;
+        //         // let ptr_uninit: *mut MaybeUninit<T::Data> = private.cast();
+        //         // unsafe { (*ptr_uninit).write(data) };
 
-    //         // Does this still violate Rust rules for UB and need to work in addr_of_mut somewhere
-    //         let private: *mut T::Data =
-    //             unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T::Data;
-    //         // SAFETY:
-    //         // - *iio_device_alloc succeeded, so private is guaranteed to be a pointer to unitialized memory
-    //         // - The uninitialized memory is is guaranteed to fit T::Data
-    //         // - TODO: private is aligned for DMA, is this still correct?
-    //         unsafe {
-    //             data.__pinned_init(private).inspect_err(|_| {
-    //                 bindings::iio_device_free(this.indio_dev.as_mut());
-    //             })?;
-    //         }
+        //         // Does this still violate Rust rules for UB and need to work in addr_of_mut somewhere
+        //         let private: *mut T::Data =
+        //             unsafe { bindings::iio_priv(this.indio_dev.as_ptr()) } as *mut T::Data;
+        //         // SAFETY:
+        //         // - *iio_device_alloc succeeded, so private is guaranteed to be a pointer to unitialized memory
+        //         // - The uninitialized memory is is guaranteed to fit T::Data
+        //         // - TODO: private is aligned for DMA, is this still correct?
+        //         unsafe {
+        //             data.__pinned_init(private).inspect_err(|_| {
+        //                 bindings::iio_device_free(this.indio_dev.as_mut());
+        //             })?;
+        //         }
 
-    //         unsafe {
-    //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).name)
-    //                 .write(options.name.as_char_ptr());
-    //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).modes).write(options.modes as i32);
-    //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
-    //                 .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
-    //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
-    //                 .write(T::CHANNELS.len() as ffi::c_int);
-    //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
-    //                 .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
-    //         }
-    //         unsafe {
-    //             to_result(bindings::__iio_device_register(
-    //                 this.indio_dev.as_ptr(),
-    //                 module.as_ptr(),
-    //             ))
-    //         }
-    //     })
-    // }
+        //         unsafe {
+        //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).name)
+        //                 .write(options.name.as_char_ptr());
+        //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).modes).write(options.modes as i32);
+        //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).channels)
+        //                 .write(T::CHANNELS.as_ptr() as *const bindings::iio_chan_spec);
+        //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).num_channels)
+        //                 .write(T::CHANNELS.len() as ffi::c_int);
+        //             ptr::addr_of_mut!((*this.indio_dev.as_ptr()).info)
+        //                 .write(IioVTableAdapter::<T>::build() as *const bindings::iio_info);
+        //         }
+        //         unsafe {
+        //             to_result(bindings::__iio_device_register(
+        //                 this.indio_dev.as_ptr(),
+        //                 module.as_ptr(),
+        //             ))
+        //         }
+        //     })
+        // }
     }
 }
 
@@ -188,11 +187,7 @@ pub trait Driver: Sized {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 
-    fn write_raw(
-        data: Pin<&mut Self::Data>,
-        spec: &Specification,
-        sdata: SensorData,
-    ) -> Result {
+    fn write_raw(data: Pin<&mut Self::Data>, spec: &Specification, sdata: SensorData) -> Result {
         build_error!(VTABLE_DEFAULT_ERROR)
     }
 }
@@ -222,7 +217,7 @@ impl<T: Driver> IioVTableAdapter<T> {
                     SensorData::Int(inner) => unsafe {
                         let val = val as *mut MaybeUninit<i32>;
                         (*val).write(*inner);
-                    }
+                    },
                 }
                 // unsafe {
                 //     let val = val as *mut MaybeUninit<i32>;

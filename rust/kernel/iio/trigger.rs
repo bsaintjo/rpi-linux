@@ -1,8 +1,6 @@
 use crate::{
     c_str,
-    iio::{
-        Device, DeviceRef, Driver,
-    },
+    iio::{Device, DeviceRef, Driver},
     prelude::*,
 };
 use core::marker::PhantomData;
