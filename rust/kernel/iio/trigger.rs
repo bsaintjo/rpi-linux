@@ -1,8 +1,7 @@
 use crate::{
     c_str,
     iio::{
-        self,
-        revamp::{Device, DeviceRef, Driver},
+        Device, DeviceRef, Driver,
     },
     prelude::*,
 };

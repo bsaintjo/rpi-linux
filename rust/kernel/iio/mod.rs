@@ -18,7 +18,6 @@ use crate::{
 };
 
 pub mod channels;
-pub mod revamp;
 pub mod trigger;
 // pub mod buffer;
 

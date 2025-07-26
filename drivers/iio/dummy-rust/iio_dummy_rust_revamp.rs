@@ -14,7 +14,7 @@ use kernel::{
     try_pin_init,
     types::ARef,
 };
-use kernel::{iio::revamp, prelude::*};
+use kernel::{iio, prelude::*};
 
 module! {
     type: MyModule,
@@ -28,7 +28,7 @@ module! {
 struct MyModule {
     faux: faux::Registration,
     #[pin]
-    dev: revamp::Device<DevData>,
+    dev: iio::Device<DevData>,
 }
 
 impl kernel::InPlaceModule for MyModule {
@@ -40,13 +40,13 @@ impl kernel::InPlaceModule for MyModule {
                 Err(e) => Err(e),
             }
         };
-        let options = revamp::RegistrationOptions {
+        let options = iio::RegistrationOptions {
             name: c_str!("test2"),
-            modes: revamp::Mode::Direct,
+            modes: iio::Mode::Direct,
         };
         try_pin_init!(Self {
             faux: faux?,
-            dev <- revamp::Device::register(dev?, module, options, DevData::init()),
+            dev <- iio::Device::register(dev?, module, options, DevData::init()),
         })
     }
 }
@@ -80,7 +80,7 @@ const DUMMY_BUFFERED_CHANNELS: &'static [Specification<Buffered>] =
     // &[Specification::new_buffered(ChannelType::Voltage)];
     &[];
 
-impl revamp::Driver for DevData {
+impl iio::Driver for DevData {
     const CHANNELS: &'static [channels::Channel] =
         &kernel::concat_channels!(DUMMY_CHANNELS, DUMMY_BUFFERED_CHANNELS);
     const USE_VTABLE_ATTR: () = ();
