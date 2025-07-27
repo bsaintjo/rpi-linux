@@ -4,7 +4,7 @@
 use core::{
     marker::PhantomData,
     mem::{self, MaybeUninit},
-    ptr::{self, addr_of_mut, NonNull},
+    ptr::{addr_of_mut, NonNull},
 };
 
 use crate::{

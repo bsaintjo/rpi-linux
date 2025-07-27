@@ -1,5 +1,4 @@
 use crate::{
-    c_str,
     iio::{Device, DeviceRef, Driver},
     prelude::*,
 };
