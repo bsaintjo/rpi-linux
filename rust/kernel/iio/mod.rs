@@ -2,7 +2,7 @@
 #![allow(unused_variables)]
 #![allow(missing_docs)]
 use core::{
-    marker::PhantomData, mem::{self, MaybeUninit}, ops::Deref, ptr::{addr_of_mut, NonNull}
+    marker::PhantomData, mem::{self, MaybeUninit}, ptr::{addr_of_mut, NonNull}
 };
 
 use crate::{
@@ -173,7 +173,7 @@ impl<T: Driver> Device<T> {
 
 }
 
-struct Claim<'a, T: Driver> {
+pub struct Claim<'a, T: Driver> {
     inner: Pin<&'a mut Device<T>>
     // indio_dev: *mut bindings::iio_dev,
     // phantom: PhantomData<&'a mut ()>
