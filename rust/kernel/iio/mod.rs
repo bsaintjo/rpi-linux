@@ -2,15 +2,13 @@
 #![allow(unused_variables)]
 #![allow(missing_docs)]
 use core::{
-    marker::PhantomData,
-    mem::{self, MaybeUninit},
-    ptr::{addr_of_mut, NonNull},
+    marker::PhantomData, mem::{self, MaybeUninit}, ops::Deref, ptr::{addr_of_mut, NonNull}
 };
 
 use crate::{
     device,
     error::{to_result, VTABLE_DEFAULT_ERROR},
-    iio::channels::{Channel, SensorValue, Simple},
+    iio::{channels::{Channel, SensorValue, Simple}},
     prelude::*,
     str::CStr,
     types::ARef,
@@ -157,6 +155,60 @@ impl<T: Driver> Device<T> {
         //         }
         //     })
         // }
+    }
+
+    pub fn data(self: Pin<&Self>) -> Pin<&T::Data> {
+        let data: *const T::Data = unsafe { bindings::iio_priv(self.indio_dev.as_ptr()) }.cast();
+        let data = unsafe { &*data };
+        let data = unsafe { Pin::new_unchecked(data) };
+        data
+    }
+
+    pub fn data_mut(self: Pin<&mut Self>) -> Pin<&mut T::Data> {
+        let data: *mut T::Data = unsafe { bindings::iio_priv(self.indio_dev.as_ptr()) }.cast();
+        let data = unsafe { &mut *data };
+        let data = unsafe { Pin::new_unchecked(data) };
+        data
+    }
+
+}
+
+struct Claim<'a, T: Driver> {
+    inner: Pin<&'a mut Device<T>>
+    // indio_dev: *mut bindings::iio_dev,
+    // phantom: PhantomData<&'a mut ()>
+}
+
+impl<'a, T: Driver> Claim<'a, T> {
+    pub fn try_claim_direct(indio_dev: Pin<&'a mut Device<T>>) -> Result<Claim<'a, T>> {
+        let res = unsafe { bindings::__iio_device_claim_direct(indio_dev.indio_dev.as_ptr())};
+        if res {
+            Ok(Self { inner: indio_dev })
+        } else {
+            Err(EBUSY)
+        }
+    }
+
+    pub fn data(&self) -> Pin<&T::Data> {
+        self.inner.as_ref().data()
+    }
+
+    pub fn data_mut(&mut self) -> Pin<&mut T::Data> {
+        self.inner.as_mut().data_mut()
+    }
+}
+
+// impl<'a, T: Driver> Deref for Claim<'a, T> {
+//     type Target = Pin<&'a mut Device<T>>;
+
+//     fn deref(&self) -> &Self::Target {
+//         &self.inner
+//     }
+// }
+
+impl<'a, T: Driver> Drop for Claim<'a, T> {
+    fn drop(&mut self) {
+        unsafe { bindings::__iio_device_release_direct(self.inner.indio_dev.as_ptr()) }
     }
 }
 
