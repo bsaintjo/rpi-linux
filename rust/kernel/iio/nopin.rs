@@ -171,49 +171,35 @@ impl<T: Driver> Device<T> {
 
 }
 
-pub struct Claim<'a, T: Driver> {
-    inner: &'a mut Device<T>
-    // indio_dev: *mut bindings::iio_dev,
-    // phantom: PhantomData<&'a mut ()>
+impl<T: Driver> Drop for Device<T> {
+    fn drop(&mut self) {
+        unsafe { bindings::iio_device_unregister(self.indio_dev.as_ptr()) };
+        unsafe { bindings::iio_device_free(self.indio_dev.as_ptr()) };
+    }
 }
 
-impl<'a, T: Driver> Claim<'a, T> {
-    pub fn try_claim_direct(indio_dev: &'a mut Device<T>) -> Result<Claim<'a, T>> {
+
+pub struct Claim<'a> {
+    // inner: &'a mut Device<T>
+    indio_dev: *mut bindings::iio_dev,
+    phantom: PhantomData<&'a mut ()>
+}
+
+impl<'a> Claim<'a> {
+    pub fn try_claim_direct<T: Driver>(indio_dev: &Device<T>) -> Result<Claim<'a>> {
         let res = unsafe { bindings::__iio_device_claim_direct(indio_dev.indio_dev.as_ptr())};
         if res {
-            Ok(Self { inner: indio_dev })
+            Ok(Self { phantom: PhantomData, indio_dev: indio_dev.indio_dev.as_ptr()})
         } else {
             Err(EBUSY)
         }
     }
 
-    // pub fn data(&self) -> Pin<&T::Data> {
-    //     self.inner.as_ref().data()
-    // }
-
-    // pub fn data_mut(&mut self) -> Pin<&mut T::Data> {
-    //     self.inner.as_mut().data_mut()
-    // }
 }
 
-// impl<'a, T: Driver> Deref for Claim<'a, T> {
-//     type Target = Pin<&'a mut Device<T>>;
-
-//     fn deref(&self) -> &Self::Target {
-//         &self.inner
-//     }
-// }
-
-impl<'a, T: Driver> Drop for Claim<'a, T> {
+impl<'a> Drop for Claim<'a> {
     fn drop(&mut self) {
-        unsafe { bindings::__iio_device_release_direct(self.inner.indio_dev.as_ptr()) }
-    }
-}
-
-impl<T: Driver> Drop for Device<T> {
-    fn drop(&mut self) {
-        unsafe { bindings::iio_device_unregister(self.indio_dev.as_ptr()) };
-        unsafe { bindings::iio_device_free(self.indio_dev.as_ptr()) };
+        unsafe { bindings::__iio_device_release_direct(self.indio_dev) }
     }
 }
 
