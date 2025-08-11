@@ -17,6 +17,7 @@ use crate::{
 
 pub mod channels;
 pub mod trigger;
+pub mod nopin;
 // pub mod buffer;
 
 use crate::iio::channels::{SensorData, Specification};
